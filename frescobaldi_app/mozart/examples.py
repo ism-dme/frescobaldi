@@ -33,6 +33,7 @@ from PyQt5.QtGui import (
     QStandardItemModel
 )
 from PyQt5.QtWidgets import (
+    QAbstractItemView,
     QHBoxLayout,
     QTreeView,
     QVBoxLayout,
@@ -53,6 +54,7 @@ class ExamplesWidget(QWidget):
 
         # Configure TreeView
         self.tree_view = tv = QTreeView(self)
+        tv.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.model = ExamplesModel(config, self)
         tv.setModel(self.model)
         tv.model().populate()
@@ -74,6 +76,11 @@ class ExamplesModel(QStandardItemModel):
     def __init__(self, config, parent=None):
         super(ExamplesModel, self).__init__(parent)
         self.config = config
+        self.project_root = self.config.project_root()
+        self.source = os.path.join(self.project_root,
+            'vorlage', 'beispiel-liste')
+
+        self.itemChanged.connect(self.slot_item_changed)
 
     def load_column_widths(self):
         """Load the column widths from settings."""
@@ -93,7 +100,6 @@ class ExamplesModel(QStandardItemModel):
         """(Re-)Populate the model based on parsing
         <project_root>/vorlage/beispiel-liste."""
         re_heading = re.compile('(\**) (.*)')
-        project_root = self.config.project_root()
         self.clear()
         self.setHorizontalHeaderLabels([
             'Beispiel',
@@ -105,8 +111,7 @@ class ExamplesModel(QStandardItemModel):
         ])
         self.load_column_widths()
 
-        source = os.path.join(project_root, 'vorlage', 'beispiel-liste')
-        with open(source) as f:
+        with open(self.source) as f:
             input = f.read().split('\n')
         root = self.invisibleRootItem()
 
@@ -137,17 +142,18 @@ class ExamplesModel(QStandardItemModel):
 
                 # Check if the main example .ly file is present (mandatory)
                 has_file_item = QStandardItem()
-                has_file_item.setCheckable(True)
-                xmp_file = os.path.join(project_root, "{}.ly".format(xmp_name))
+                has_file_item.setCheckable(False)
+                xmp_file = os.path.join(self.project_root,
+                    "{}.ly".format(xmp_name))
                 has_file = Qt.Checked if os.path.isfile(xmp_file) else Qt.Unchecked
                 has_file_item.setCheckState(has_file)
                 row.append(has_file_item)
 
                 # Check if an <example>-include.ily file is present
                 has_include_item = QStandardItem()
-                has_include_item.setCheckable(True)
+                has_include_item.setCheckable(False)
                 include_file = os.path.join(
-                    project_root, "{}-include.ily".format(xmp_name))
+                    self.project_root, "{}-include.ily".format(xmp_name))
                 has_include = Qt.Checked if os.path.isfile(include_file) else Qt.Unchecked
                 has_include_item.setCheckState(has_include)
                 row.append(has_include_item)
@@ -174,3 +180,28 @@ class ExamplesModel(QStandardItemModel):
                 row.append(approved_item)
 
                 parent.appendRow(row)
+
+    def slot_item_changed(self, item):
+        index = self.indexFromItem(item)
+        example = index.sibling(index.row(), 0)
+        example_name = self.itemFromIndex(example).text()
+        col = item.column()
+        new_state = True if item.checkState() == 2 else False
+
+        if col < 3:
+            return
+
+        # Update the source file
+        with open(self.source) as f:
+            input = f.read().split('\n')
+        output = []
+        for line in input:
+            if not line.startswith(example_name):
+                output.append(line)
+            else:
+                xmp_info = line.split(' ')
+                xmp_info[col - 2] = '[x]' if new_state else '[]'
+                output.append(' '.join(xmp_info))
+
+        with open(self.source, 'w') as f:
+            f.write('\n'.join(output))
