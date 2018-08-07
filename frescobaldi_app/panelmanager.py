@@ -80,6 +80,7 @@ class PanelManager(plugin.MainWindowPlugin):
         self.loadPanel("outline.OutlinePanel", "structure")
         self.loadPanel("miditool.MidiTool", "midi")
         self.loadPanel("midiinput.tool.MidiInputTool", "midi")
+        self.loadPanel("mozart.MozartPanel")
 
         # The Object editor is highly experimental and should be
         # commented out for stable releases.
