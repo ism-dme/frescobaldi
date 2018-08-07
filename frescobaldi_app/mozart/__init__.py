@@ -18,7 +18,7 @@
 # See http://www.gnu.org/licenses/ for more information.
 
 """
-The document outline tool.
+Leopold Mozart: Violinschule, Editing Panel
 """
 
 
