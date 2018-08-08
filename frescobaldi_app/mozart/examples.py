@@ -36,6 +36,7 @@ from PyQt5.QtGui import (
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
+    QLabel,
     QTreeView,
     QVBoxLayout,
     QWidget
@@ -43,6 +44,7 @@ from PyQt5.QtWidgets import (
 
 import app
 import panelmanager
+import signals
 from . import contextmenu
 
 class ExamplesWidget(QWidget):
@@ -54,20 +56,27 @@ class ExamplesWidget(QWidget):
         layout.addLayout(config_layout)
         self.setLayout(layout)
 
-        # TODO: Fill config_layout with widgets
+        self.stats_label = QLabel(self)
+
+        config_layout.addWidget(self.stats_label)
 
         # Configure TreeView
         self.tree_view = tv = QTreeView(self)
         tv.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.model = ExamplesModel(config, self)
         tv.setModel(self.model)
-        tv.model().populate()
+        self.populate()
 
         layout.addWidget(tv)
 
         tv.setContextMenuPolicy(Qt.CustomContextMenu)
         tv.customContextMenuRequested.connect(self.show_context_menu)
 
+        self.config().urlrequester.changed.connect(self.change_root)
+        self.model.example_data_changed.connect(self.slot_example_data_changed)
+
+    def change_root(self):
+        self.model.populate()
 
     def config(self):
         return self._config
@@ -75,10 +84,53 @@ class ExamplesWidget(QWidget):
     def mainwindow(self):
         return self.config().parent().parent().parent().mainwindow()
 
+    def populate(self):
+        model = self.tree_view.model()
+        model.populate()
+        self.populate_stats()
+
+    def populate_stats(self):
+        model = self.tree_view.model()
+        examples_cnt = model.count['examples']
+        input_cnt = model.count['input']
+        review_cnt = model.count['review']
+        approved_cnt = model.count['approved']
+        self.stats_label.setText(
+            "Beispiele: {} | Eingegeben: {} | ".format(
+                examples_cnt, input_cnt)
+            + "Zur Korrektur: {} | Akzeptiert: {}".format(
+                review_cnt,
+                approved_cnt))
+
     def save_settings(self):
         s = QSettings()
         s.beginGroup('mozart')
         s.setValue('example-columns/name', self.tree_view.columnWidth(0))
+
+    def slot_example_data_changed(self, data):
+        col = data['column']
+        if col < 3:
+            return
+
+        # Update the source file
+        with open(self.model.source) as f:
+            input = f.read().split('\n')
+        output = []
+        for line in input:
+            if not line.startswith(data['example']):
+                output.append(line)
+            else:
+                xmp_info = line.split(' ')
+                print(xmp_info)
+                xmp_info[1] = '[x]' if data['input'] else '[]'
+                xmp_info[2] = '[x]' if data['review'] else '[]'
+                xmp_info[3] = '[x]' if data['approved'] else '[]'
+                output.append(' '.join(xmp_info))
+
+        with open(self.model.source, 'w') as f:
+            f.write('\n'.join(output))
+
+        self.populate_stats()
 
     def example_data(self, point):
         """Ermittle den Datensatz unter dem Mauszeiger."""
@@ -231,12 +283,21 @@ class ExamplesWidget(QWidget):
 
 class ExamplesModel(QStandardItemModel):
     """Model for info about examples"""
+
+    example_data_changed = signals.Signal()
+
     def __init__(self, config, parent=None):
         super(ExamplesModel, self).__init__(parent)
         self.config = config
         self.project_root = self.config.project_root()
         self.source = os.path.join(self.project_root,
             'vorlage', 'beispiel-liste')
+        self.count = {
+            'examples': 0,
+            'input': 0,
+            'review': 0,
+            'approved': 0
+        }
 
         self.itemChanged.connect(self.slot_item_changed)
 
@@ -269,8 +330,11 @@ class ExamplesModel(QStandardItemModel):
         ])
         self.load_column_widths()
 
-        with open(self.source) as f:
-            input = f.read().split('\n')
+        try:
+            with open(self.source) as f:
+                input = f.read().split('\n')
+        except FileNotFoundError:
+            input = []
         root = self.invisibleRootItem()
 
         last_toplevel = None
@@ -293,6 +357,7 @@ class ExamplesModel(QStandardItemModel):
             else:
                 # Handle single example
                 parent = last_secondlevel or last_toplevel
+                self.count['examples'] += 1
 
                 xmp_info = line.split(' ')
                 xmp_name = xmp_info[0]
@@ -319,47 +384,71 @@ class ExamplesModel(QStandardItemModel):
                 # Check if example has been marked as input
                 has_input_item = QStandardItem()
                 has_input_item.setCheckable(True)
-                has_input = Qt.Checked if xmp_info[1] == '[x]' else Qt.Unchecked
+                if xmp_info[1] == '[x]':
+                    has_input = Qt.Checked
+                    self.count['input'] += 1
+                else:
+                    has_input = Qt.Unchecked
                 has_input_item.setCheckState(has_input)
                 row.append(has_input_item)
 
                 # Check if example has been marked as ready for review
                 for_review_item = QStandardItem()
                 for_review_item.setCheckable(True)
-                for_review = Qt.Checked if xmp_info[2] == '[x]' else Qt.Unchecked
+                if xmp_info[2] == '[x]':
+                    for_review = Qt.Checked
+                    self.count['review'] += 1
+                else:
+                    for_review = Qt.Unchecked
                 for_review_item.setCheckState(for_review)
                 row.append(for_review_item)
 
                 # Check if example has been approved
                 approved_item = QStandardItem()
                 approved_item.setCheckable(True)
-                approved = Qt.Checked if xmp_info[3] == '[x]' else Qt.Unchecked
+                if xmp_info[3] == '[x]':
+                    approved = Qt.Checked
+                    self.count['approved'] += 1
+                else:
+                    approved = Qt.Unchecked
                 approved_item.setCheckState(approved)
                 row.append(approved_item)
 
                 parent.appendRow(row)
 
     def slot_item_changed(self, item):
-        index = self.indexFromItem(item)
-        example = index.sibling(index.row(), 0)
-        example_name = self.itemFromIndex(example).text()
+
+        data = {}
         col = item.column()
-        new_state = True if item.checkState() == 2 else False
+        row = item.row()
+        index = self.indexFromItem(item)
 
-        if col < 3:
-            return
+        def sibling(col):
+            sib = index.sibling(row, col)
+            return self.itemFromIndex(sib)
 
-        # Update the source file
-        with open(self.source) as f:
-            input = f.read().split('\n')
-        output = []
-        for line in input:
-            if not line.startswith(example_name):
-                output.append(line)
-            else:
-                xmp_info = line.split(' ')
-                xmp_info[col - 2] = '[x]' if new_state else '[]'
-                output.append(' '.join(xmp_info))
+        def sibling_checked(col):
+            return sibling(col).checkState() == Qt.Checked
 
-        with open(self.source, 'w') as f:
-            f.write('\n'.join(output))
+        data['modified'] = ['input', 'review', 'approved'][col - 3]
+        data['column']   = col
+        data['example']  = sibling(0).text()
+        data['input']    = sibling_checked(3)
+        data['review']   = sibling_checked(4)
+        data['approved'] = sibling_checked(5)
+
+        new_state = data[data['modified']]
+        change = 1 if new_state else -1
+        self.count[data['modified']] += change
+
+        if data['approved'] and not data['review']:
+            sibling(4).setCheckState(Qt.Checked)
+            data['review'] = True
+            #self.count['review'] += 1
+        if data['review'] and not data['input']:
+            sibling(3).setCheckState(Qt.Checked)
+            data['input'] = True
+            #self.count['input'] += 1
+
+
+        self.example_data_changed.emit(data)
