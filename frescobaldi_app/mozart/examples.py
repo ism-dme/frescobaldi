@@ -211,7 +211,9 @@ class ExamplesWidget(QWidget):
     def show_manuscript(self):
         manuscript_viewer = panelmanager.manager(
             self.mainwindow()).panel_by_name('manuscript')
-        #TODO: Load document
+
+        # TODO: Load document
+
         xmp_name = self.selected_example_data['example']
         print("Show", xmp_name)
         if xmp_name.startswith('1756_erratum'):
@@ -223,10 +225,7 @@ class ExamplesWidget(QWidget):
             match = reg.match(xmp_name)
             if not match:
                 return
-            print(match)
-            print(match.group(1))
             page = int(match.group(1))
-        print("Goto page", page)
         manuscript_viewer.setCurrentPage(page)
 
 

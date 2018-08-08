@@ -42,33 +42,42 @@ class ContextMenu(QMenu):
 
         self.addSeparator()
 
-        self.create_file = cf = QAction(self)
-        cf.setText("&Neue Datei (ein System)")
-        self.addAction(cf)
-
-        self.create_file_2 = cf2 = QAction(self)
-        cf2.setText("&Neue Datei (zwei Systeme)")
-        self.addAction(cf2)
-
-        self.create_include = ci = QAction(self)
-        ci.setText("Neue &Include-Datei")
-        self.addAction(ci)
+        self.addMenu(self.new_files_menu())
 
         self.addSeparator()
-
-        self.create_files = cfs = QAction(self)
-        cfs.setText("Neue &Dateien (ein System)")
-        self.addAction(cfs)
-
-        self.create_files_2 = cfs2 = QAction(self)
-        cfs2.setText("Neue Dateien (zwei &Systeme)")
-        self.addAction(cfs2)        
 
         self.show_manuscript = sm = QAction(self)
         sm.setText("Zeige &Manuskript")
         self.addAction(sm)
 
         self.update_actions()
+
+    def new_files_menu(self):
+        m = QMenu("&Neu", self)
+
+        self.create_file = cf = QAction(m)
+        cf.setText("&Datei (ein System)")
+        m.addAction(cf)
+
+        self.create_file_2 = cf2 = QAction(m)
+        cf2.setText("Datei (&zwei Systeme)")
+        m.addAction(cf2)
+
+        self.create_include = ci = QAction(m)
+        ci.setText("&Include-Datei")
+        m.addAction(ci)
+
+        m.addSeparator()
+
+        self.create_files = cfs = QAction(m)
+        cfs.setText("&Beide Dateien (ein System)")
+        m.addAction(cfs)
+
+        self.create_files_2 = cfs2 = QAction(m)
+        cfs2.setText("Beide Dateien (zwei &Systeme)")
+        m.addAction(cfs2)
+
+        return m
 
     def update_actions(self):
         self.open_file.setEnabled(self.data['file'] or self.data['include'])
