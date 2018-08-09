@@ -26,6 +26,7 @@ import os
 
 from PyQt5.QtCore import (
     QSettings,
+    QSortFilterProxyModel,
     Qt,
     QUrl
 )
@@ -35,6 +36,7 @@ from PyQt5.QtGui import (
 )
 from PyQt5.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QHBoxLayout,
     QLabel,
     QTreeView,
@@ -51,29 +53,51 @@ class ExamplesWidget(QWidget):
     def __init__(self, config):
         super(ExamplesWidget, self).__init__()
         self._config = config
-        config_layout = QHBoxLayout()
-        layout = QVBoxLayout()
-        layout.addLayout(config_layout)
-        self.setLayout(layout)
-
         self.stats_label = QLabel(self)
 
-        config_layout.addWidget(self.stats_label)
+        # Filter-Checkboxes
+        self.cb_filter_file = QCheckBox(self)
+        self.cb_filter_file.setText("Datei")
+        self.cb_filter_file.setTristate()
+
+        self.cb_filter_input = QCheckBox(self)
+        self.cb_filter_input.setText("Eingegeben")
+        self.cb_filter_input.setTristate()
+
+        self.cb_filter_review = QCheckBox(self)
+        self.cb_filter_review.setText("Zur Abnahme")
+        self.cb_filter_review.setTristate()
+
+        self.cb_filter_approved = QCheckBox(self)
+        self.cb_filter_approved.setText("Akzeptiert")
+        self.cb_filter_approved.setTristate()
+
 
         # Configure TreeView
+        self.model = ExamplesModel(config, self)
         self.tree_view = tv = QTreeView(self)
         tv.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.model = ExamplesModel(config, self)
-        tv.setModel(self.model)
-        self.populate()
+        tv.setModel(self.model.proxy())
+        tv.setContextMenuPolicy(Qt.CustomContextMenu)
 
+        config_layout = QHBoxLayout()
+        config_layout.addWidget(self.cb_filter_file)
+        config_layout.addWidget(self.cb_filter_input)
+        config_layout.addWidget(self.cb_filter_review)
+        config_layout.addWidget(self.cb_filter_approved)
+        config_layout.addStretch()
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.stats_label)
+        layout.addLayout(config_layout)
+        self.setLayout(layout)
         layout.addWidget(tv)
 
-        tv.setContextMenuPolicy(Qt.CustomContextMenu)
-        tv.customContextMenuRequested.connect(self.show_context_menu)
-
         self.config().urlrequester.changed.connect(self.change_root)
+        tv.customContextMenuRequested.connect(self.show_context_menu)
         self.model.example_data_changed.connect(self.slot_example_data_changed)
+
+        self.populate()
 
     def change_root(self):
         self.model.populate()
@@ -85,12 +109,11 @@ class ExamplesWidget(QWidget):
         return self.config().parent().parent().parent().mainwindow()
 
     def populate(self):
-        model = self.tree_view.model()
-        model.populate()
+        self.model.populate()
         self.populate_stats()
 
     def populate_stats(self):
-        model = self.tree_view.model()
+        model = self.model
         examples_cnt = model.count['examples']
         input_cnt = model.count['input']
         review_cnt = model.count['review']
@@ -121,7 +144,6 @@ class ExamplesWidget(QWidget):
                 output.append(line)
             else:
                 xmp_info = line.split(' ')
-                print(xmp_info)
                 xmp_info[1] = '[x]' if data['input'] else '[]'
                 xmp_info[2] = '[x]' if data['review'] else '[]'
                 xmp_info[3] = '[x]' if data['approved'] else '[]'
@@ -281,6 +303,55 @@ class ExamplesWidget(QWidget):
         manuscript_viewer.setCurrentPage(page)
 
 
+class ExamplesFilterProxyModel(QSortFilterProxyModel):
+    """Custom proxy model that ignores child elements in filtering"""
+
+    def __init__(self, widget, parent=None):
+        super(ExamplesFilterProxyModel, self).__init__(parent)
+        self.widget = widget
+        self.widget.cb_filter_file.clicked.connect(self.invalidate)
+        self.widget.cb_filter_input.clicked.connect(self.invalidate)
+        self.widget.cb_filter_review.clicked.connect(self.invalidate)
+        self.widget.cb_filter_approved.clicked.connect(self.invalidate)
+
+    def filterAcceptsRow(self, row, parent):
+        """Filter examples according to (tristate) check boxes.
+        - unchecked box => ignore
+        - negative check => only display when element is missing
+        - positive check => only display when element is present."""
+
+        def item(col):
+            """Return the current row's item at the specified column.
+            Returns None if no item is in that column."""
+            parent_item = self.sourceModel().itemFromIndex(parent)
+            return parent_item.child(row, col)
+
+        def check_rule(cb, col):
+            """Check the rule specified by the check box cb
+            and the value of column col.
+            If the checkbox is unchecked ignore the case (return True).
+            Otherwise match the check box state with the element presence."""
+            state = cb.checkState()
+            if state == Qt.Unchecked:
+                return True
+            has = item(col).checkState() == Qt.Checked
+            accept = has if state == 2 else not has
+            return accept
+
+        # skip headings and subheadings
+        if not parent.isValid() or not item(0).text().startswith('1756'):
+            return True
+
+        # if *any* of the chosen filters fails return False
+        if (not check_rule(self.widget.cb_filter_file, 1)
+            or not check_rule(self.widget.cb_filter_input, 3)
+            or not check_rule(self.widget.cb_filter_review, 4)
+            or not check_rule(self.widget.cb_filter_approved, 5)):
+            return False
+        else:
+            return True
+
+
 class ExamplesModel(QStandardItemModel):
     """Model for info about examples"""
 
@@ -288,6 +359,10 @@ class ExamplesModel(QStandardItemModel):
 
     def __init__(self, config, parent=None):
         super(ExamplesModel, self).__init__(parent)
+
+        self._proxy = ExamplesFilterProxyModel(parent, self)
+        self._proxy.setSourceModel(self)
+
         self.config = config
         self.project_root = self.config.project_root()
         self.source = os.path.join(self.project_root,
@@ -415,6 +490,9 @@ class ExamplesModel(QStandardItemModel):
                 row.append(approved_item)
 
                 parent.appendRow(row)
+
+    def proxy(self):
+        return self._proxy
 
     def slot_item_changed(self, item):
 
