@@ -156,15 +156,18 @@ class ExamplesWidget(QWidget):
 
     def example_data(self, point):
         """Ermittle den Datensatz unter dem Mauszeiger."""
-        model = self.tree_view.model()
-        index = self.tree_view.indexAt(point)
+        proxy_model = self.tree_view.model()
+        index = proxy_model.mapToSource(self.tree_view.indexAt(point))
         row = index.row()
         col = index.column()
-        parent = model.itemFromIndex(index.parent())
-        if not parent:
+        parent = index.parent()
+        if not parent.isValid():
+            # In 1st-Level Überschrift
             return None
-        xmp_name = parent.child(row).text()
+        parent = self.model.itemFromIndex(parent)
+        xmp_name = parent.child(row, 0).text()
         if not xmp_name.startswith('1756'):
+            # In 2nd-Level Überschrift
             return None
         return {
             'example': xmp_name,
@@ -179,7 +182,7 @@ class ExamplesWidget(QWidget):
     def show_context_menu(self, point):
         self.selected_example_data = example_data = self.example_data(point)
         if example_data:
-            #contextmenu.show(self.tree_view, point, example_data)
+            # Erzeuge Kontextmenü nur, wenn ein Beispiel ausgewählt wurde
             cm = contextmenu.ContextMenu(point, example_data, self.tree_view)
             cm.open_file.triggered.connect(self.open_file)
             cm.close_file.triggered.connect(self.close_file)
@@ -214,6 +217,8 @@ class ExamplesWidget(QWidget):
         self.mainwindow().setCurrentDocument(doc)
 
     def _example_file_names(self):
+        """Erzeuge Dateinamen für Haupt- und Inklude-Datei aus gegebenem
+        Beispielnamen."""
         xmp_name = self.selected_example_data['example']
         return ('{}/{}.ly'.format(self.config().project_root(), xmp_name),
             '{}/{}-include.ily'.format(self.config().project_root(), xmp_name))
@@ -283,13 +288,16 @@ class ExamplesWidget(QWidget):
         self.mainwindow().setCurrentDocument(doc)
 
     def show_manuscript(self):
+        """Öffne die Seite des Beispiels im Manuskript.
+        NOTE: Derzeit wird das Scan-Dokument (vorlage/vorlage-seitenkorrekt.pdf)
+        noch nicht automatisch geöffnet, sondern muss bereits im Manuscript
+        Viewer geöffnet sein."""
         manuscript_viewer = panelmanager.manager(
             self.mainwindow()).panel_by_name('manuscript')
 
         # TODO: Load document
 
         xmp_name = self.selected_example_data['example']
-        print("Show", xmp_name)
         if xmp_name.startswith('1756_erratum'):
             page = 265
         elif xmp_name.startswith('1756_tabelle'):
@@ -304,7 +312,7 @@ class ExamplesWidget(QWidget):
 
 
 class ExamplesFilterProxyModel(QSortFilterProxyModel):
-    """Custom proxy model that ignores child elements in filtering"""
+    """Implementiert Filterung entsprechend der Checkboxen."""
 
     def __init__(self, widget, parent=None):
         super(ExamplesFilterProxyModel, self).__init__(parent)
@@ -495,7 +503,11 @@ class ExamplesModel(QStandardItemModel):
         return self._proxy
 
     def slot_item_changed(self, item):
-
+        """Bereite Daten auf, wenn ein Element des Datensatzes
+        verändert wurde. Sammle die neuen Werte des Datensatzes,
+        den Namen des Beispiels und die veränderte Spalte.
+        Am Ende wird der neue Datensatz an ein Signal ausgegeben
+        (und soll im Widget verarbeitet werden)."""
         data = {}
         col = item.column()
         row = item.row()
@@ -519,6 +531,7 @@ class ExamplesModel(QStandardItemModel):
         change = 1 if new_state else -1
         self.count[data['modified']] += change
 
+        # 'approved' impliziert 'review' und dieses wiederum 'input'
         if data['approved'] and not data['review']:
             sibling(4).setCheckState(Qt.Checked)
             data['review'] = True
@@ -527,6 +540,5 @@ class ExamplesModel(QStandardItemModel):
             sibling(3).setCheckState(Qt.Checked)
             data['input'] = True
             #self.count['input'] += 1
-
 
         self.example_data_changed.emit(data)
