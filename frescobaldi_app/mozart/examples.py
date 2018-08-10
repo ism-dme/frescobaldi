@@ -120,6 +120,7 @@ class ExamplesWidget(QWidget):
         self.config().urlrequester.changed.connect(self.change_root)
         tv.customContextMenuRequested.connect(self.show_context_menu)
         self.model.example_data_changed.connect(self.slot_example_data_changed)
+        self.tree_view.doubleClicked.connect(self.slot_tree_view_double_clicked)
 
         self.load_settings()
         self.populate()
@@ -250,6 +251,15 @@ class ExamplesWidget(QWidget):
             self.mainwindow().viewManager.viewChanged.disconnect(self.slot_view_changed)
         s = QSettings()
         s.setValue('mozart/sync-documents', state)
+
+    def slot_tree_view_double_clicked(self, point):
+        data = self.example_data('file')
+        if not data:
+            return
+        if data['file']:
+            self.open_file_exclusive()
+        else:
+            self.create_files()
 
     def slot_view_changed(self, view):
         """Opens the current document's entry in the tree view
