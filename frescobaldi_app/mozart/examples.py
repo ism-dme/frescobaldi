@@ -197,24 +197,20 @@ class ExamplesWidget(QWidget):
 
     def close_file(self):
         """Schließt die Datei(en) des Beispiels, wenn sie im Editor
-        geöffnet sind.
-        NOTE: Probleme beim "Aufräumen", Exceptions."""
-        xmp_name = self.selected_example_data['example']
-        file_url = QUrl(
-            '{}/{}.ly'.format(self.config().project_root(), xmp_name))
+        geöffnet sind."""
+        file_name, example_name = self._example_file_names()
+        file_url = QUrl(file_name)
         file_url.setScheme('file')
+        xmp_name = self.selected_example_data['example']
         doc = app.findDocument(file_url)
         if doc:
             self.mainwindow().closeDocument(doc)
         if self.selected_example_data['include']:
-            include_url = QUrl(
-                '{}/{}-include.ily'.format(
-                    self.config().project_root(), xmp_name))
+            include_url = QUrl(example_name)
             include_url.setScheme('file')
             include_doc = app.findDocument(include_url)
             if include_doc:
                 self.mainwindow().closeDocument(include_doc)
-        self.mainwindow().setCurrentDocument(doc)
 
     def _example_file_names(self):
         """Erzeuge Dateinamen für Haupt- und Inklude-Datei aus gegebenem
