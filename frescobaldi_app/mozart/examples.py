@@ -186,13 +186,21 @@ class ExamplesWidget(QWidget):
 
     def populate_stats(self):
         model = self.model
+        # Zähle sichtbare Beispiele.
+        # Das dürfte effizienter gehen ...
+        items = model.findItems('1756', Qt.MatchRecursive | Qt. MatchStartsWith)
+        visible_cnt = 0
+        for item in items:
+            visible = model.proxy().mapFromSource(model.indexFromItem(item)).isValid()
+            if visible:
+                visible_cnt += 1
         examples_cnt = model.count['examples']
         input_cnt = model.count['input']
         review_cnt = model.count['review']
         approved_cnt = model.count['approved']
         self.stats_label.setText(
-            "Beispiele: {} | Eingegeben: {} | ".format(
-                examples_cnt, input_cnt)
+            "Beispiele: {} ({}) | Eingegeben: {} | ".format(
+                visible_cnt, examples_cnt, input_cnt)
             + "Zur Korrektur: {} | Akzeptiert: {}".format(
                 review_cnt,
                 approved_cnt))
@@ -231,6 +239,7 @@ class ExamplesWidget(QWidget):
         die Anzeige."""
         QSettings().setValue('mozart/{}'.format(self.sender().text()), state)
         self.model.proxy().invalidate()
+        self.populate_stats()
 
     def slot_sync_editor_clicked(self, state):
         if state == Qt.Checked:
