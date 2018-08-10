@@ -313,6 +313,9 @@ class ExamplesFilterProxyModel(QSortFilterProxyModel):
     def __init__(self, widget, parent=None):
         super(ExamplesFilterProxyModel, self).__init__(parent)
         self.widget = widget
+        self.documentName = ''
+        widget.mainwindow().currentDocumentChanged.connect(
+            self.update_current_doc)
         self.widget.cb_filter_file.clicked.connect(self.invalidate)
         self.widget.cb_filter_input.clicked.connect(self.invalidate)
         self.widget.cb_filter_review.clicked.connect(self.invalidate)
@@ -346,6 +349,10 @@ class ExamplesFilterProxyModel(QSortFilterProxyModel):
         if not parent.isValid() or not item(0).text().startswith('1756'):
             return True
 
+        # always show document currently open in editor
+        if self.documentName.startswith(item(0).text()):
+            return True
+
         # if *any* of the chosen filters fails return False
         if (not check_rule(self.widget.cb_filter_file, 1)
             or not check_rule(self.widget.cb_filter_input, 3)
@@ -354,6 +361,10 @@ class ExamplesFilterProxyModel(QSortFilterProxyModel):
             return False
         else:
             return True
+
+    def update_current_doc(self, doc, previous):
+        self.documentName = doc.documentName()
+        self.invalidate()
 
 
 class ExamplesModel(QStandardItemModel):

@@ -39,8 +39,8 @@ from widgets import urlrequester
 
 
 class ConfigWidget(QWidget):
-    def __init__(self):
-        super(ConfigWidget, self).__init__()
+    def __init__(self, parent=None):
+        super(ConfigWidget, self).__init__(parent)
         layout = QVBoxLayout()
         self.setLayout(layout)
 
@@ -65,7 +65,7 @@ class ConfigWidget(QWidget):
 
     def project_root(self):
         return self.urlrequester.path()
-        
+
     def save_root(self):
         s = QSettings()
         s.setValue('mozart/root', self.urlrequester.path())
