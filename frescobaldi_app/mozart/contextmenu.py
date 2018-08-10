@@ -36,6 +36,10 @@ class ContextMenu(QMenu):
         of.setText("Öffne in &Editor")
         self.addAction(of)
 
+        self.open_file_exclusive = ofe = QAction(self)
+        ofe.setText("Öffne in Editor (e&xklusiv)")
+        self.addAction(ofe)
+
         self.close_file = clf = QAction(self)
         clf.setText("&Schließe im Editor")
         self.addAction(clf)
@@ -81,6 +85,7 @@ class ContextMenu(QMenu):
 
     def update_actions(self):
         self.open_file.setEnabled(self.data['file'] or self.data['include'])
+        self.open_file_exclusive.setEnabled(self.open_file.isEnabled())
         self.close_file.setEnabled(self.open_file.isEnabled())
         self.create_file.setEnabled(not self.data['file'])
         self.create_file_2.setEnabled(self.create_file.isEnabled())

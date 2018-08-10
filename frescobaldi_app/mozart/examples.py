@@ -217,37 +217,52 @@ class ExamplesWidget(QWidget):
         self.tree_view.scrollTo(index)
         self.tree_view.selectionModel().select(index, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
 
-    def example_data(self, point):
-        """Ermittle den Datensatz unter dem Mauszeiger."""
-        proxy_model = self.tree_view.model()
-        index = proxy_model.mapToSource(self.tree_view.indexAt(point))
-        row = index.row()
-        col = index.column()
-        parent = index.parent()
-        if not parent.isValid():
-            # In 1st-Level Überschrift
-            return None
-        parent = self.model.itemFromIndex(parent)
-        xmp_name = parent.child(row, 0).text()
+        self.show_manuscript()
+
+    def example_data(self, type=None):
+        """Ermittle den Datensatz der aktuellen Auswahl.
+        Wenn type angegeben ist, gib den entsprechenden Wert zurück,
+        andernfalls ein Dictionary."""
+        proxy_model = self.model.proxy()
+        types = ['example', 'file', 'include', 'input', 'review', 'approved']
+        col = types.index(type) if type else None
+
+        # Erzeuge sortierte Liste von Items
+        items = [None for i in range(6)]
+        selection = self.tree_view.selectionModel().selectedIndexes()
+        for index in selection:
+            items[index.column()] = self.model.itemFromIndex(
+                proxy_model.mapToSource(index))
+
+        xmp_name = items[0].text()
         if not xmp_name.startswith('1756'):
-            # In 2nd-Level Überschrift
-            return None
+            return
+
+        if col is not None:
+            # Gebe einzelnen gesuchten Wert zurück
+            item = items[col]
+            if col == 0:
+                return xmp_name
+            else:
+                return item.checkState() == Qt.Checked
+
+        # Erzeuge Dictionary
         return {
-            'example': xmp_name,
-            'column': col,
-            'file': parent.child(row, 1).checkState() == Qt.Checked,
-            'include': parent.child(row, 2).checkState() == Qt.Checked,
-            'input': parent.child(row, 3).checkState() == Qt.Checked,
-            'review': parent.child(row, 4).checkState() == Qt.Checked,
-            'approved': parent.child(row, 5).checkState() == Qt.Checked,
+            'example'  : xmp_name,
+            'file'     : items[1].checkState() == Qt.Checked,
+            'include'  : items[2].checkState() == Qt.Checked,
+            'input'    : items[3].checkState() == Qt.Checked,
+            'review'   : items[4].checkState() == Qt.Checked,
+            'approved' : items[5].checkState() == Qt.Checked
         }
 
     def show_context_menu(self, point):
-        self.selected_example_data = example_data = self.example_data(point)
+        example_data = self.example_data()
         if example_data:
             # Erzeuge Kontextmenü nur, wenn ein Beispiel ausgewählt wurde
             cm = contextmenu.ContextMenu(point, example_data, self.tree_view)
             cm.open_file.triggered.connect(self.open_file)
+            cm.open_file_exclusive.triggered.connect(self.open_file_exclusive)
             cm.close_file.triggered.connect(self.close_file)
             cm.create_file.triggered.connect(self.create_file)
             cm.create_file_2.triggered.connect(self.create_file_2)
@@ -264,11 +279,11 @@ class ExamplesWidget(QWidget):
         file_name, example_name = self._example_file_names()
         file_url = QUrl(file_name)
         file_url.setScheme('file')
-        xmp_name = self.selected_example_data['example']
+        xmp_name = self.example_data('example')
         doc = app.findDocument(file_url)
         if doc:
             self.mainwindow().closeDocument(doc)
-        if self.selected_example_data['include']:
+        if self.example_data('include'):
             include_url = QUrl(example_name)
             include_url.setScheme('file')
             include_doc = app.findDocument(include_url)
@@ -278,19 +293,19 @@ class ExamplesWidget(QWidget):
     def _example_file_names(self):
         """Erzeuge Dateinamen für Haupt- und Inklude-Datei aus gegebenem
         Beispielnamen."""
-        xmp_name = self.selected_example_data['example']
+        xmp_name = self.example_data('example')
         return ('{}/{}.ly'.format(self.config().project_root(), xmp_name),
             '{}/{}-include.ily'.format(self.config().project_root(), xmp_name))
 
     def _create_file_from_template(self, file_type, template_type, file_name):
         """Liest eine Template-Datei ein und erzeugt eine Arbeitsdatei."""
-        xmp_name = self.selected_example_data['example']
+        xmp_name = self.example_data('example')
         with open(os.path.join(self.config().project_root(), 'vorlage',
             '{}.ly'.format(template_type))) as f:
             template = f.read()
         with open(file_name, 'w') as f:
             f.write(template.replace('<<<example>>>', xmp_name))
-        self.selected_example_data[file_type] = True
+        self.model.proxy().invalidate()
 
     def _create_file(self, file_type, template_type, file_name):
         """Erzeugt eine Arbeitsdatei nach Template und öffnet sie."""
@@ -329,22 +344,26 @@ class ExamplesWidget(QWidget):
         _, include_name = self._example_file_names()
         self._create_file('include', 'include', include_name)
 
-    def open_file(self):
-        """Öffnet die Datei(en) für das ausgewählte Beispiel.
-        Wenn das Kontextmenü vom Include-File ausgelöst wird und dieses
-        vorhanden ist, wird dieses zum aktiven Dokument gemacht,
-        andernfalls das Haupt-Dokument."""
+    def _open_file(self):
+        """Öffnet die Datei(en) für das ausgewählte Beispiel."""
         file_name, include_name = self._example_file_names()
         file_url = QUrl(file_name)
         file_url.setScheme('file')
         doc = app.openUrl(file_url)
-        if self.selected_example_data['include']:
+        if self.example_data('include'):
             include_url = QUrl(include_name)
             include_url.setScheme('file')
             include_doc = app.openUrl(include_url)
-            if self.selected_example_data['column'] == 2:
-                doc = include_doc
         self.mainwindow().setCurrentDocument(doc)
+
+    def open_file(self):
+        """Öffnet die Datei(en) für das ausgewählte Beispiel."""
+        self._open_file()
+
+    def open_file_exclusive(self):
+        self.mainwindow().closeOtherDocuments()
+        self.mainwindow().closeCurrentDocument()
+        self._open_file()
 
     def show_manuscript(self):
         """Öffne die Seite des Beispiels im Manuskript.
@@ -356,7 +375,7 @@ class ExamplesWidget(QWidget):
 
         # TODO: Load document
 
-        xmp_name = self.selected_example_data['example']
+        xmp_name = self.example_data('example')
         if xmp_name.startswith('1756_erratum'):
             page = 265
         elif xmp_name.startswith('1756_tabelle'):
