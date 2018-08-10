@@ -117,7 +117,7 @@ class ExamplesWidget(QWidget):
         self.setLayout(layout)
         layout.addWidget(tv)
 
-        self.config().urlrequester.changed.connect(self.change_root)
+        self.config().root_requester.changed.connect(self.change_root)
         tv.customContextMenuRequested.connect(self.show_context_menu)
         self.model.example_data_changed.connect(self.slot_example_data_changed)
         self.tree_view.doubleClicked.connect(self.slot_tree_view_double_clicked)

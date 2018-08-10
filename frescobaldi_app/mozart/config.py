@@ -21,6 +21,7 @@
 Leopold Mozart Violinschule Konfiguration
 """
 
+import os
 
 from PyQt5.QtCore import (
     QSettings
@@ -44,14 +45,23 @@ class ConfigWidget(QWidget):
         layout = QVBoxLayout()
         self.setLayout(layout)
 
-        url_layout = QHBoxLayout()
-        self.url_label = QLabel(self)
-        self.url_label.setText("Projekt-Root:")
-        self.urlrequester = urlrequester.UrlRequester(self)
-        self.urlrequester.changed.connect(self.save_root)
-        url_layout.addWidget(self.url_label)
-        url_layout.addWidget(self.urlrequester)
-        layout.addLayout(url_layout)
+        root_layout = QHBoxLayout()
+        self.root_label = QLabel(self)
+        self.root_label.setText("Projekt-Root:")
+        self.root_requester = urlrequester.UrlRequester(self)
+        self.root_requester.changed.connect(self.save_root)
+        root_layout.addWidget(self.root_label)
+        root_layout.addWidget(self.root_requester)
+        layout.addLayout(root_layout)
+
+        export_layout = QHBoxLayout()
+        self.export_label = QLabel(self)
+        self.export_label.setText("Export-Verzeichnis:")
+        self.export_requester = urlrequester.UrlRequester(self)
+        self.export_requester.changed.connect(self.save_export)
+        export_layout.addWidget(self.export_label)
+        export_layout.addWidget(self.export_requester)
+        layout.addLayout(export_layout)
 
 
         layout.addStretch()
@@ -61,11 +71,16 @@ class ConfigWidget(QWidget):
     def load_settings(self):
         s = QSettings()
         s.beginGroup('mozart')
-        self.urlrequester.setPath(s.value('root', ''))
+        self.root_requester.setPath(s.value('root', ''))
+        self.export_requester.setPath(s.value('export',
+            os.path.join(self.root_requester.path(), 'export')))
 
     def project_root(self):
-        return self.urlrequester.path()
+        return self.root_requester.path()
+
+    def save_export(self):
+        QSettings().setValue('mozart/export', self.export_requester.path())
 
     def save_root(self):
         s = QSettings()
-        s.setValue('mozart/root', self.urlrequester.path())
+        s.setValue('mozart/root', self.root_requester.path())
