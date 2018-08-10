@@ -25,6 +25,7 @@ import re
 import os
 
 from PyQt5.QtCore import (
+    QItemSelectionModel,
     QSettings,
     QSortFilterProxyModel,
     Qt,
@@ -56,22 +57,41 @@ class ExamplesWidget(QWidget):
         self.stats_label = QLabel(self)
 
         # Filter-Checkboxes
+        self.filter_label = QLabel(self)
+        self.filter_label.setText("Filter: |   ")
+
         self.cb_filter_file = QCheckBox(self)
         self.cb_filter_file.setText("Datei")
         self.cb_filter_file.setTristate()
+        self.cb_filter_file.stateChanged.connect(self.slot_filter_state_changed)
 
         self.cb_filter_input = QCheckBox(self)
         self.cb_filter_input.setText("Eingegeben")
         self.cb_filter_input.setTristate()
+        self.cb_filter_input.stateChanged.connect(self.slot_filter_state_changed)
 
         self.cb_filter_review = QCheckBox(self)
         self.cb_filter_review.setText("Zur Abnahme")
         self.cb_filter_review.setTristate()
+        self.cb_filter_review.stateChanged.connect(self.slot_filter_state_changed)
 
         self.cb_filter_approved = QCheckBox(self)
-        self.cb_filter_approved.setText("Akzeptiert")
+        self.cb_filter_approved.setText("Abgenommen")
         self.cb_filter_approved.setTristate()
+        self.cb_filter_approved.stateChanged.connect(self.slot_filter_state_changed)
 
+        self.cb_sync_editor = QCheckBox(self)
+        self.cb_sync_editor.setText("Sync")
+        self.cb_sync_editor.stateChanged.connect(self.slot_sync_editor_clicked)
+
+        config_layout = QHBoxLayout()
+        config_layout.addWidget(self.filter_label)
+        config_layout.addWidget(self.cb_filter_file)
+        config_layout.addWidget(self.cb_filter_input)
+        config_layout.addWidget(self.cb_filter_review)
+        config_layout.addWidget(self.cb_filter_approved)
+        config_layout.addStretch()
+        config_layout.addWidget(self.cb_sync_editor)
 
         # Configure TreeView
         self.model = ExamplesModel(config, self)
@@ -79,13 +99,6 @@ class ExamplesWidget(QWidget):
         tv.setEditTriggers(QAbstractItemView.NoEditTriggers)
         tv.setModel(self.model.proxy())
         tv.setContextMenuPolicy(Qt.CustomContextMenu)
-
-        config_layout = QHBoxLayout()
-        config_layout.addWidget(self.cb_filter_file)
-        config_layout.addWidget(self.cb_filter_input)
-        config_layout.addWidget(self.cb_filter_review)
-        config_layout.addWidget(self.cb_filter_approved)
-        config_layout.addStretch()
 
         layout = QVBoxLayout()
         layout.addWidget(self.stats_label)
@@ -97,7 +110,17 @@ class ExamplesWidget(QWidget):
         tv.customContextMenuRequested.connect(self.show_context_menu)
         self.model.example_data_changed.connect(self.slot_example_data_changed)
 
+        self.load_settings()
         self.populate()
+
+    def load_settings(self):
+        s = QSettings()
+        s.beginGroup('mozart')
+        self.cb_sync_editor.setCheckState(int(s.value('sync-documents', "0")))
+        self.cb_filter_file.setCheckState(int(s.value('Datei', "0")))
+        self.cb_filter_input.setCheckState(int(s.value('Eingegeben', "0")))
+        self.cb_filter_review.setCheckState(int(s.value('Zur Abnahme', "0")))
+        self.cb_filter_approved.setCheckState(int(s.value('Abgenommen', "0")))
 
     def change_root(self):
         self.model.populate()
@@ -106,7 +129,8 @@ class ExamplesWidget(QWidget):
         return self._config
 
     def mainwindow(self):
-        return self.config().parent().parent().parent().mainwindow()
+        return app.activeWindow()
+#        return self.config().parent().parent().mainwindow()
 
     def populate(self):
         self.model.populate()
@@ -153,6 +177,45 @@ class ExamplesWidget(QWidget):
             f.write('\n'.join(output))
 
         self.populate_stats()
+
+    def slot_filter_state_changed(self, state):
+        """Speichere den Status der Filter-CheckBox und aktualisiere
+        die Anzeige."""
+        QSettings().setValue('mozart/{}'.format(self.sender().text()), state)
+        self.model.proxy().invalidate()
+
+    def slot_sync_editor_clicked(self, state):
+        if state == Qt.Checked:
+            self.mainwindow().viewManager.viewChanged.connect(self.slot_view_changed)
+            self.slot_view_changed(
+            self.mainwindow().viewManager.activeViewSpace().activeView())
+        else:
+            self.mainwindow().viewManager.viewChanged.disconnect(self.slot_view_changed)
+        s = QSettings()
+        s.setValue('mozart/sync-documents', state)
+
+    def slot_view_changed(self, view):
+        """Opens the current document's entry in the tree view
+        if it points to an example file.
+        Note that the current document is always visible regardless
+        of the filter settings."""
+        if not view:
+            return
+        doc = view.document()
+        if not doc:
+            return
+        name = doc.documentName()
+        match = re.match('(1756_\d+_\d+).*', name)
+        if not match:
+            return
+        example = match.group(1)
+        model = self.model
+        item = model.findItems(example, Qt.MatchRecursive)
+        if not item:
+            return
+        index = model.proxy().mapFromSource(model.indexFromItem(item[0]))
+        self.tree_view.scrollTo(index)
+        self.tree_view.selectionModel().select(index, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
 
     def example_data(self, point):
         """Ermittle den Datensatz unter dem Mauszeiger."""
@@ -316,10 +379,6 @@ class ExamplesFilterProxyModel(QSortFilterProxyModel):
         self.documentName = ''
         widget.mainwindow().currentDocumentChanged.connect(
             self.update_current_doc)
-        self.widget.cb_filter_file.clicked.connect(self.invalidate)
-        self.widget.cb_filter_input.clicked.connect(self.invalidate)
-        self.widget.cb_filter_review.clicked.connect(self.invalidate)
-        self.widget.cb_filter_approved.clicked.connect(self.invalidate)
 
     def filterAcceptsRow(self, row, parent):
         """Filter examples according to (tristate) check boxes.
