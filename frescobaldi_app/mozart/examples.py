@@ -41,11 +41,13 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QTreeView,
+    QToolButton,
     QVBoxLayout,
     QWidget
 )
 
 import app
+import icons
 import panelmanager
 import signals
 from . import contextmenu
@@ -84,14 +86,23 @@ class ExamplesWidget(QWidget):
         self.cb_sync_editor.setText("Sync")
         self.cb_sync_editor.stateChanged.connect(self.slot_sync_editor_clicked)
 
-        config_layout = QHBoxLayout()
-        config_layout.addWidget(self.filter_label)
-        config_layout.addWidget(self.cb_filter_file)
-        config_layout.addWidget(self.cb_filter_input)
-        config_layout.addWidget(self.cb_filter_review)
-        config_layout.addWidget(self.cb_filter_approved)
-        config_layout.addStretch()
-        config_layout.addWidget(self.cb_sync_editor)
+        self.tb_previous_example = QToolButton(self)
+        self.tb_previous_example.setIcon(icons.get('go-previous'))
+        self.tb_previous_example.clicked.connect(self.goto_previous_example)
+        self.tb_next_example = QToolButton(self)
+        self.tb_next_example.clicked.connect(self.goto_next_example)
+        self.tb_next_example.setIcon(icons.get('go-next'))
+
+        nav_layout = QHBoxLayout()
+        nav_layout.addWidget(self.filter_label)
+        nav_layout.addWidget(self.cb_filter_file)
+        nav_layout.addWidget(self.cb_filter_input)
+        nav_layout.addWidget(self.cb_filter_review)
+        nav_layout.addWidget(self.cb_filter_approved)
+        nav_layout.addStretch()
+        nav_layout.addWidget(self.tb_previous_example)
+        nav_layout.addWidget(self.tb_next_example)
+        nav_layout.addWidget(self.cb_sync_editor)
 
         # Configure TreeView
         self.model = ExamplesModel(config, self)
@@ -102,7 +113,7 @@ class ExamplesWidget(QWidget):
 
         layout = QVBoxLayout()
         layout.addWidget(self.stats_label)
-        layout.addLayout(config_layout)
+        layout.addLayout(nav_layout)
         self.setLayout(layout)
         layout.addWidget(tv)
 
@@ -128,9 +139,46 @@ class ExamplesWidget(QWidget):
     def config(self):
         return self._config
 
+    def _example_names_split(self):
+        """Erzeugt eine Liste mit allen Beispielnamen, splittet diese
+        am aktuell ausgewählten Beispiel und gibt alles zurück, die
+        früheren Beispiele in umgekehrter Reihenfolge."""
+        model = self.model
+        current_example = self.example_data('example')
+        examples = [item.text() for item in model.findItems(
+            '1756', Qt.MatchRecursive | Qt.MatchStartsWith)]
+        current = examples.index(current_example)
+        previous = examples[current-1::-1] if current > 0 else []
+        return previous, current_example, examples[current+1:]
+
+    def _goto_next_visible_example(self, examples):
+        """Nimmt eine Liste mit Beispielnamen und findet das nächste
+        Beispiel, das nicht ausgefiltert ist. Anschließend wird dieses
+        Beispiel exklusiv geöffnet."""
+        model = self.model
+        for example in examples:
+            item = model.findItems(example, Qt.MatchRecursive)
+            index = model.indexFromItem(item[0])
+            mapped = model.proxy().mapFromSource(index)
+            if mapped.isValid():
+                self.tree_view.scrollTo(mapped)
+                self.tree_view.selectionModel().select(mapped, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
+                self.open_file_exclusive()
+                return True
+        return False
+
+    def goto_next_example(self):
+        """Öffnet das nächste (nicht gefilterte) Beispiel."""
+        _, _, remain = self._example_names_split()
+        self._goto_next_visible_example(remain)
+
+    def goto_previous_example(self):
+        """Öffnet das vorherige (nicht gefilterte) Beispiel."""
+        previous, _, _ = self._example_names_split()
+        self._goto_next_visible_example(previous)
+
     def mainwindow(self):
         return app.activeWindow()
-#        return self.config().parent().parent().mainwindow()
 
     def populate(self):
         self.model.populate()
