@@ -254,9 +254,9 @@ class ExamplesWidget(QWidget):
 
     def slot_tree_view_double_clicked(self, point):
         data = self.example_data('file')
-        if not data:
+        if data is None:
             return
-        if data['file']:
+        if data:
             self.open_file_exclusive()
         else:
             self.create_files()
@@ -563,6 +563,12 @@ class ExamplesModel(QStandardItemModel):
             'Review',
             'Abgenommen'
         ])
+        self.count = {
+            'examples': 0,
+            'input': 0,
+            'review': 0,
+            'approved': 0
+        }
         self.load_column_widths()
 
         try:
