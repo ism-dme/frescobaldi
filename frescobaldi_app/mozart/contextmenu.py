@@ -59,6 +59,10 @@ class ContextMenu(QMenu):
     def new_files_menu(self):
         m = QMenu("&Neu", self)
 
+        self.create_one_voice = cov = QAction(m)
+        cov.setText("Datei (eine S&timme)")
+        m.addAction(cov)
+
         self.create_file = cf = QAction(m)
         cf.setText("&Datei (ein System)")
         m.addAction(cf)
@@ -72,6 +76,10 @@ class ContextMenu(QMenu):
         m.addAction(ci)
 
         m.addSeparator()
+
+        self.create_one_voice_2 = cov2 = QAction(m)
+        cov2.setText("Beide Dateien (eine Sti&mme)")
+        m.addAction(cov2)
 
         self.create_files = cfs = QAction(m)
         cfs.setText("&Beide Dateien (ein System)")
@@ -89,11 +97,14 @@ class ContextMenu(QMenu):
         self.close_file.setEnabled(self.open_file.isEnabled())
         self.create_file.setEnabled(not self.data['file'])
         self.create_file_2.setEnabled(self.create_file.isEnabled())
+        self.create_one_voice.setEnabled(self.create_file.isEnabled())
         self.create_include.setEnabled(
             self.data['file'] and not self.data['include'])
         self.create_files.setEnabled(
             not self.data['file']
             and not self.data['include'])
+        self.create_files_2.setEnabled(self.create_files.isEnabled())
+        self.create_one_voice_2.setEnabled(self.create_files.isEnabled())
 
 
 def show(tree_view, position, data):

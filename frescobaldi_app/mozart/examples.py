@@ -331,10 +331,12 @@ class ExamplesWidget(QWidget):
             cm.open_file.triggered.connect(self.open_file)
             cm.open_file_exclusive.triggered.connect(self.open_file_exclusive)
             cm.close_file.triggered.connect(self.close_file)
+            cm.create_one_voice.triggered.connect(self.create_one_voice)
             cm.create_file.triggered.connect(self.create_file)
             cm.create_file_2.triggered.connect(self.create_file_2)
             cm.create_files.triggered.connect(self.create_files)
             cm.create_files_2.triggered.connect(self.create_files_2)
+            cm.create_one_voice_2.triggered.connect(self.create_one_voice_2)
             cm.create_include.triggered.connect(self.create_include)
             cm.show_manuscript.triggered.connect(self.show_manuscript)
             cm.exec_(self.tree_view.mapToGlobal(point))
@@ -410,6 +412,15 @@ class ExamplesWidget(QWidget):
         """Erzeuge eine neue Include-Datei."""
         _, include_name = self._example_file_names()
         self._create_file('include', 'include', include_name)
+
+    def create_one_voice(self):
+        """Erzeuge eine neue Arbeitsdatei für eine Stimme."""
+        file_name, _ = self._example_file_names()
+        self._create_file('file', 'eine-stimme', file_name)
+
+    def create_one_voice_2(self):
+        """Erzeuge neues Dateipaar für eine Stimme."""
+        self._create_files('eine-stimme')
 
     def _open_file(self):
         """Öffnet die Datei(en) für das ausgewählte Beispiel."""
