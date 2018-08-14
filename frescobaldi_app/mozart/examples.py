@@ -211,6 +211,23 @@ class ExamplesWidget(QWidget):
         s.beginGroup('mozart')
         s.setValue('example-columns/name', self.tree_view.columnWidth(0))
 
+    def show_example(self, name):
+        """Öffne das gewünschte Beispiel in der Liste (wenn sichtbar)
+        und zeige es im Manuscript Viewer."""
+        match = re.match('(1756_\d+_\d+).*', name)
+        if not match:
+            return
+        example = match.group(1)
+        model = self.model
+        item = model.findItems(example, Qt.MatchRecursive)
+        if not item:
+            return
+        index = model.proxy().mapFromSource(model.indexFromItem(item[0]))
+        self.tree_view.scrollTo(index)
+        self.tree_view.selectionModel().select(index, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
+
+        self.show_manuscript()
+
     def slot_example_data_changed(self, data):
         col = data['column']
         if col < 3:
@@ -272,19 +289,8 @@ class ExamplesWidget(QWidget):
         if not doc:
             return
         name = doc.documentName()
-        match = re.match('(1756_\d+_\d+).*', name)
-        if not match:
-            return
-        example = match.group(1)
-        model = self.model
-        item = model.findItems(example, Qt.MatchRecursive)
-        if not item:
-            return
-        index = model.proxy().mapFromSource(model.indexFromItem(item[0]))
-        self.tree_view.scrollTo(index)
-        self.tree_view.selectionModel().select(index, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
+        self.show_example(name)
 
-        self.show_manuscript()
 
     def example_data(self, type=None):
         """Ermittle den Datensatz der aktuellen Auswahl.
@@ -395,10 +401,12 @@ class ExamplesWidget(QWidget):
     def _create_files(self, template_type):
         """Erzeuge Arbeits- und Include-Datei nach Template und öffne sie."""
         file_name, include_name = self._example_file_names()
+        example = self.example_data('example')
         self._create_file_from_template('file', template_type, file_name)
         self._create_file_from_template('include', 'include', include_name)
-        self.open_file()
         self.model.populate()
+        self.show_example(example)
+        self.open_file()
 
     def create_files(self):
         """Erzeuge Dateipaar für ein System."""
@@ -428,6 +436,7 @@ class ExamplesWidget(QWidget):
         file_url = QUrl(file_name)
         file_url.setScheme('file')
         doc = app.openUrl(file_url)
+        print(self.example_data())
         if self.example_data('include'):
             include_url = QUrl(include_name)
             include_url.setScheme('file')
