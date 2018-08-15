@@ -181,8 +181,8 @@ class ExamplesWidget(QWidget):
             if mapped.isValid():
                 self.tree_view.scrollTo(mapped)
                 self.tree_view.selectionModel().select(mapped, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
-                self.open_file_exclusive()
-                return True
+                if self.open_file_exclusive():
+                    return True
         return False
 
     def goto_next_example(self):
@@ -446,6 +446,8 @@ class ExamplesWidget(QWidget):
     def _open_file(self):
         """Öffnet die Datei(en) für das ausgewählte Beispiel."""
         xmp_name, file_name, include_name = self._example_file_names()
+        if not os.path.exists(file_name):
+            return False
         file_url = QUrl(file_name)
         file_url.setScheme('file')
         doc = app.openUrl(file_url)
@@ -455,15 +457,19 @@ class ExamplesWidget(QWidget):
             include_url.setScheme('file')
             include_doc = app.openUrl(include_url)
         self.mainwindow().setCurrentDocument(doc)
+        return True
 
     def open_file(self):
         """Öffnet die Datei(en) für das ausgewählte Beispiel."""
-        self._open_file()
+        return self._open_file()
 
     def open_file_exclusive(self):
+        _, file_name, _ = self._example_file_names()
+        if not os.path.exists(file_name):
+            return False
         self.mainwindow().closeOtherDocuments()
         self.mainwindow().closeCurrentDocument()
-        self._open_file()
+        return self._open_file()
 
     def show_manuscript(self):
         """Öffne die Seite des Beispiels im Manuskript.
