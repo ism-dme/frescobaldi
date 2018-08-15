@@ -33,9 +33,9 @@ from . import (
 )
 
 class Widget(QTabWidget):
-    def __init__(self, tool):
-        super(Widget, self).__init__(tool)
+    def __init__(self, panel):
+        super(Widget, self).__init__(panel)
         self.config_widget = cw = config.ConfigWidget(self)
-        self.examples_widget = examples.ExamplesWidget(cw)
+        self.examples_widget = examples.ExamplesWidget(self)
         self.addTab(self.examples_widget, "Beispiele")
         self.addTab(self.config_widget, "Konfiguration")

@@ -24,9 +24,12 @@ Leopold Mozart: Violinschule, Editing Panel
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QKeySequence
+from PyQt5.QtWidgets import QAction
 
 import panel
-
+import actioncollection
+import actioncollectionmanager
+import icons
 
 class MozartPanel(panel.Panel):
     def __init__(self, mainwindow):
@@ -34,6 +37,7 @@ class MozartPanel(panel.Panel):
         self.hide()
         self.toggleViewAction().setShortcut(QKeySequence("Meta+Alt+Z"))
         mainwindow.addDockWidget(Qt.RightDockWidgetArea, self)
+        ac = self.actionCollection = Actions(self)
 
     def translateUI(self):
         self.setWindowTitle(_("Leopold Mozart: Violinschule"))
@@ -43,3 +47,65 @@ class MozartPanel(panel.Panel):
         from . import widget
         w = widget.Widget(self)
         return w
+
+class Actions(actioncollection.ActionCollection):
+    name = "mozart"
+
+    def createActions(self, parent=None):
+        # Navigational actions
+        self.mozart_previous_example = QAction(parent)
+        self.mozart_previous_example.setIcon(icons.get('go-previous'))
+        self.mozart_next_example = QAction(parent)
+        self.mozart_next_example.setIcon(icons.get('go-next'))
+
+        # Show examples actions
+        self.mozart_open_file = QAction(parent)
+        self.mozart_open_file_exclusive = QAction(parent)
+        self.mozart_close_file = QAction(parent)
+        self.mozart_show_manuscript = QAction(parent)
+
+        # Create files actions
+        self.mozart_create_one_voice = QAction(parent)
+        self.mozart_create_one_system = QAction(parent)
+        self.mozart_create_two_systems = QAction(parent)
+        self.mozart_create_include = QAction(parent)
+        self.mozart_create_one_voice_2 = QAction(parent)
+        self.mozart_create_one_system_2 = QAction(parent)
+        self.mozart_create_two_systems_2 = QAction(parent)
+
+    def translateUI(self):
+        self.mozart_previous_example.setText("&Voriges Beispiel")
+        self.mozart_next_example.setText("&Nächstes Beispiel")
+        self.mozart_open_file.setText("Öffne in &Editor")
+        self.mozart_open_file_exclusive.setText("Öffne in Editor (e&xklusiv)")
+        self.mozart_close_file.setText("&Schließe im Editor")
+        self.mozart_show_manuscript.setText("Zeige &Manuskript")
+
+        self.mozart_create_one_voice.setText("Datei (eine S&timme)")
+        self.mozart_create_one_system.setText("&Datei (ein System)")
+        self.mozart_create_two_systems.setText("Datei (&zwei Systeme)")
+        self.mozart_create_include.setText("&Include-Datei")
+        self.mozart_create_one_voice_2.setText("Beide Dateien (eine Sti&mme)")
+        self.mozart_create_one_system_2.setText("&Beide Dateien (ein System)")
+        self.mozart_create_two_systems_2.setText(
+            "Beide Dateien (zwei &Systeme)")
+
+    def update_actions(self):
+        data = self.widget().widget().examples_widget.example_data()
+        self.mozart_open_file.setEnabled(data['file'] or data['include'])
+        self.mozart_open_file_exclusive.setEnabled(
+            self.mozart_open_file.isEnabled())
+        self.mozart_close_file.setEnabled(self.mozart_open_file.isEnabled())
+        self.mozart_create_one_voice.setEnabled(not data['file'])
+        self.mozart_create_one_system.setEnabled(
+            self.mozart_create_one_voice.isEnabled())
+        self.mozart_create_two_systems.setEnabled(
+            self.mozart_create_one_voice.isEnabled())
+        self.mozart_create_include.setEnabled(
+            data['file'] and not data['include'])
+        self.mozart_create_one_voice_2.setEnabled(
+            self.mozart_create_one_voice.isEnabled())
+        self.mozart_create_one_system_2.setEnabled(
+            self.mozart_create_one_voice.isEnabled())
+        self.mozart_create_two_systems_2.setEnabled(
+            self.mozart_create_one_voice.isEnabled())

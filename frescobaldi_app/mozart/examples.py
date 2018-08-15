@@ -53,10 +53,11 @@ import signals
 from . import contextmenu
 
 class ExamplesWidget(QWidget):
-    def __init__(self, config):
-        super(ExamplesWidget, self).__init__()
-        self._config = config
+    def __init__(self, parent):
+        super(ExamplesWidget, self).__init__(parent)
+        self._config = parent.config_widget
         self.stats_label = QLabel(self)
+        ac = self.action_collection = parent.parent().actionCollection
 
         # Filter-Checkboxes
         self.filter_label = QLabel(self)
@@ -87,11 +88,11 @@ class ExamplesWidget(QWidget):
         self.cb_sync_editor.stateChanged.connect(self.slot_sync_editor_clicked)
 
         self.tb_previous_example = QToolButton(self)
-        self.tb_previous_example.setIcon(icons.get('go-previous'))
-        self.tb_previous_example.clicked.connect(self.goto_previous_example)
+        self.tb_previous_example.setDefaultAction(ac.mozart_previous_example)
+        ac.mozart_previous_example.triggered.connect(self.goto_previous_example)
         self.tb_next_example = QToolButton(self)
-        self.tb_next_example.clicked.connect(self.goto_next_example)
-        self.tb_next_example.setIcon(icons.get('go-next'))
+        self.tb_next_example.setDefaultAction(ac.mozart_next_example)
+        ac.mozart_next_example.triggered.connect(self.goto_next_example)
 
         nav_layout = QHBoxLayout()
         nav_layout.addWidget(self.filter_label)
@@ -105,7 +106,7 @@ class ExamplesWidget(QWidget):
         nav_layout.addWidget(self.cb_sync_editor)
 
         # Configure TreeView
-        self.model = ExamplesModel(config, self)
+        self.model = ExamplesModel(self._config, self)
         self.tree_view = tv = QTreeView(self)
         tv.setEditTriggers(QAbstractItemView.NoEditTriggers)
         tv.setModel(self.model.proxy())
@@ -117,13 +118,29 @@ class ExamplesWidget(QWidget):
         self.setLayout(layout)
         layout.addWidget(tv)
 
+        self.connect_actions(ac)
+        self.load_settings()
+        self.populate()
+
+    def connect_actions(self, ac):
         self.config().root_requester.changed.connect(self.change_root)
-        tv.customContextMenuRequested.connect(self.show_context_menu)
+        self.tree_view.customContextMenuRequested.connect(
+            self.show_context_menu)
         self.model.example_data_changed.connect(self.slot_example_data_changed)
         self.tree_view.doubleClicked.connect(self.slot_tree_view_double_clicked)
 
-        self.load_settings()
-        self.populate()
+        ac.mozart_open_file.triggered.connect(self.open_file)
+        ac.mozart_open_file_exclusive.triggered.connect(
+            self.open_file_exclusive)
+        ac.mozart_close_file.triggered.connect(self.close_file)
+        ac.mozart_show_manuscript.triggered.connect(self.show_manuscript)
+        ac.mozart_create_one_voice.triggered.connect(self.create_one_voice)
+        ac.mozart_create_one_system.triggered.connect(self.create_one_system)
+        ac.mozart_create_two_systems.triggered.connect(self.create_two_systems)
+        ac.mozart_create_include.triggered.connect(self.create_include)
+        ac.mozart_create_one_voice_2.triggered.connect(self.create_one_voice_2)
+        ac.mozart_create_one_system_2.triggered.connect(self.create_files)
+        ac.mozart_create_two_systems_2.triggered.connect(self.create_files_2)
 
     def load_settings(self):
         s = QSettings()
@@ -332,29 +349,18 @@ class ExamplesWidget(QWidget):
     def show_context_menu(self, point):
         example_data = self.example_data()
         if example_data:
+            ac = self.action_collection
             # Erzeuge Kontextmenü nur, wenn ein Beispiel ausgewählt wurde
-            cm = contextmenu.ContextMenu(point, example_data, self.tree_view)
-            cm.open_file.triggered.connect(self.open_file)
-            cm.open_file_exclusive.triggered.connect(self.open_file_exclusive)
-            cm.close_file.triggered.connect(self.close_file)
-            cm.create_one_voice.triggered.connect(self.create_one_voice)
-            cm.create_file.triggered.connect(self.create_file)
-            cm.create_file_2.triggered.connect(self.create_file_2)
-            cm.create_files.triggered.connect(self.create_files)
-            cm.create_files_2.triggered.connect(self.create_files_2)
-            cm.create_one_voice_2.triggered.connect(self.create_one_voice_2)
-            cm.create_include.triggered.connect(self.create_include)
-            cm.show_manuscript.triggered.connect(self.show_manuscript)
+            cm = contextmenu.ContextMenu(self)
             cm.exec_(self.tree_view.mapToGlobal(point))
             cm.deleteLater()
 
     def close_file(self):
         """Schließt die Datei(en) des Beispiels, wenn sie im Editor
         geöffnet sind."""
-        file_name, example_name = self._example_file_names()
+        xmp_name, file_name, example_name = self._example_file_names()
         file_url = QUrl(file_name)
         file_url.setScheme('file')
-        xmp_name = self.example_data('example')
         doc = app.findDocument(file_url)
         if doc:
             self.mainwindow().closeDocument(doc)
@@ -366,47 +372,59 @@ class ExamplesWidget(QWidget):
                 self.mainwindow().closeDocument(include_doc)
 
     def _example_file_names(self):
-        """Erzeuge Dateinamen für Haupt- und Inklude-Datei aus gegebenem
-        Beispielnamen."""
+        """Erzeuge Dateinamen für Haupt- und Inklude-Datei des ausgewählten
+        Beispiels."""
         xmp_name = self.example_data('example')
-        return ('{}/{}.ly'.format(self.config().project_root(), xmp_name),
-            '{}/{}-include.ily'.format(self.config().project_root(), xmp_name))
+        return (
+            xmp_name,
+            os.path.join(
+                self.config().project_root(), '{}.ly'.format(xmp_name)),
+            os.path.join(
+                self.config().project_root(), '{}-include.ily'.format(xmp_name))
+        )
 
-    def _create_file_from_template(self, file_type, template_type, file_name):
+    def _create_file_from_template(
+        self, xmp_name, file_type, template_type, file_name):
         """Liest eine Template-Datei ein und erzeugt eine Arbeitsdatei."""
-        xmp_name = self.example_data('example')
         with open(os.path.join(self.config().project_root(), 'vorlage',
             '{}.ly'.format(template_type))) as f:
             template = f.read()
         with open(file_name, 'w') as f:
             f.write(template.replace('<<<example>>>', xmp_name))
-        self.model.proxy().invalidate()
 
-    def _create_file(self, file_type, template_type, file_name):
+    def _create_file(self, xmp_name, file_type, template_type, file_name):
         """Erzeugt eine Arbeitsdatei nach Template und öffnet sie."""
-        self._create_file_from_template(file_type, template_type, file_name)
-        self.open_file()
+        self._create_file_from_template(
+            xmp_name, file_type, template_type, file_name)
         self.model.populate()
-
-    def create_file(self):
-        """Erzeuge eine neue Arbeitsdatei für ein System"""
-        file_name, _ = self._example_file_names()
-        self._create_file('file', 'ein-system', file_name)
-
-    def create_file_2(self):
-        """Erzeuge eine neue Arbeitsdatei für zwei Systeme."""
-        file_name, _ = self._example_file_names()
-        self._create_file('file', 'zwei-systeme', file_name)
+        self.show_example(xmp_name)
+        self.open_file()
 
     def _create_files(self, template_type):
         """Erzeuge Arbeits- und Include-Datei nach Template und öffne sie."""
-        file_name, include_name = self._example_file_names()
-        example = self.example_data('example')
-        self._create_file_from_template('file', template_type, file_name)
-        self._create_file_from_template('include', 'include', include_name)
+        xmp_name, file_name, include_name = self._example_file_names()
+        self._create_file_from_template(
+            xmp_name, 'file', template_type, file_name)
+        self._create_file_from_template(
+            xmp_name, 'include', 'include', include_name)
         self.model.populate()
-        self.show_example(example)
+        self.show_example(xmp_name)
         self.open_file()
+
+    def create_one_system(self):
+        """Erzeuge eine neue Arbeitsdatei für ein System"""
+        xmp_name, file_name, _ = self._example_file_names()
+        self._create_file(xmp_name, 'file', 'ein-system', file_name)
+
+    def create_one_voice(self):
+        """Erzeuge eine neue Arbeitsdatei für eine Stimme."""
+        xmp_name, file_name, _ = self._example_file_names()
+        self._create_file(xmp_name, 'file', 'eine-stimme', file_name)
+
+    def create_two_systems(self):
+        """Erzeuge eine neue Arbeitsdatei für zwei Systeme."""
+        xmp_name, file_name, _ = self._example_file_names()
+        self._create_file(xmp_name, 'file', 'zwei-systeme', file_name)
 
     def create_files(self):
         """Erzeuge Dateipaar für ein System."""
@@ -418,13 +436,8 @@ class ExamplesWidget(QWidget):
 
     def create_include(self):
         """Erzeuge eine neue Include-Datei."""
-        _, include_name = self._example_file_names()
-        self._create_file('include', 'include', include_name)
-
-    def create_one_voice(self):
-        """Erzeuge eine neue Arbeitsdatei für eine Stimme."""
-        file_name, _ = self._example_file_names()
-        self._create_file('file', 'eine-stimme', file_name)
+        xmp_name, _, include_name = self._example_file_names()
+        self._create_file(xmp_name, 'include', 'include', include_name)
 
     def create_one_voice_2(self):
         """Erzeuge neues Dateipaar für eine Stimme."""
@@ -432,7 +445,7 @@ class ExamplesWidget(QWidget):
 
     def _open_file(self):
         """Öffnet die Datei(en) für das ausgewählte Beispiel."""
-        file_name, include_name = self._example_file_names()
+        xmp_name, file_name, include_name = self._example_file_names()
         file_url = QUrl(file_name)
         file_url.setScheme('file')
         doc = app.openUrl(file_url)
