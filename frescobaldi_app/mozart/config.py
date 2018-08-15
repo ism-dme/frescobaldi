@@ -24,7 +24,8 @@ Leopold Mozart Violinschule Konfiguration
 import os
 
 from PyQt5.QtCore import (
-    QSettings
+    QSettings,
+    QThread
 )
 from PyQt5.QtGui import (
     QStandardItemModel
@@ -32,6 +33,7 @@ from PyQt5.QtGui import (
 from PyQt5.QtWidgets import (
     QLabel,
     QHBoxLayout,
+    QSpinBox,
     QVBoxLayout,
     QWidget
 )
@@ -63,6 +65,14 @@ class ConfigWidget(QWidget):
         export_layout.addWidget(self.export_requester)
         layout.addLayout(export_layout)
 
+        runner_layout = QHBoxLayout()
+        self.runner_label = QLabel("Anzahl paralleler Jobs")
+        self.runner_spinbox = QSpinBox()
+        self.runner_spinbox.setRange(1, QThread.idealThreadCount())
+        self.runner_spinbox.valueChanged.connect(self.save_runners)
+        runner_layout.addWidget(self.runner_label)
+        runner_layout.addWidget(self.runner_spinbox)
+        layout.addLayout(runner_layout)
 
         layout.addStretch()
 
@@ -74,6 +84,7 @@ class ConfigWidget(QWidget):
         self.root_requester.setPath(s.value('root', ''))
         self.export_requester.setPath(s.value('export',
             os.path.join(self.root_requester.path(), 'export')))
+        self.runner_spinbox.setValue(s.value('num-runners', 1, int))
 
     def project_root(self):
         return self.root_requester.path()
@@ -84,3 +95,6 @@ class ConfigWidget(QWidget):
     def save_root(self):
         s = QSettings()
         s.setValue('mozart/root', self.root_requester.path())
+
+    def save_runners(self, new_value):
+        QSettings().setValue('mozart/num-runners', new_value)

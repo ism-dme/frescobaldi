@@ -41,6 +41,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QTreeView,
+    QToolBar,
     QToolButton,
     QVBoxLayout,
     QWidget
@@ -61,49 +62,53 @@ class ExamplesWidget(QWidget):
 
         # Filter-Checkboxes
         self.filter_label = QLabel(self)
-        self.filter_label.setText("Filter: |   ")
+        self.filter_label.setText("Filter:")
 
         self.cb_filter_file = QCheckBox(self)
         self.cb_filter_file.setText("Datei")
         self.cb_filter_file.setTristate()
-        self.cb_filter_file.stateChanged.connect(self.slot_filter_state_changed)
 
         self.cb_filter_input = QCheckBox(self)
         self.cb_filter_input.setText("Eingegeben")
         self.cb_filter_input.setTristate()
-        self.cb_filter_input.stateChanged.connect(self.slot_filter_state_changed)
 
         self.cb_filter_review = QCheckBox(self)
         self.cb_filter_review.setText("Zur Abnahme")
         self.cb_filter_review.setTristate()
-        self.cb_filter_review.stateChanged.connect(self.slot_filter_state_changed)
 
         self.cb_filter_approved = QCheckBox(self)
         self.cb_filter_approved.setText("Abgenommen")
         self.cb_filter_approved.setTristate()
-        self.cb_filter_approved.stateChanged.connect(self.slot_filter_state_changed)
 
         self.cb_sync_editor = QCheckBox(self)
         self.cb_sync_editor.setText("Sync")
-        self.cb_sync_editor.stateChanged.connect(self.slot_sync_editor_clicked)
+        self.cb_sync_editor.setToolTip("Synchronisiere die verschiedenen Elemente des GUI")
 
-        self.tb_previous_example = QToolButton(self)
-        self.tb_previous_example.setDefaultAction(ac.mozart_previous_example)
-        ac.mozart_previous_example.triggered.connect(self.goto_previous_example)
-        self.tb_next_example = QToolButton(self)
-        self.tb_next_example.setDefaultAction(ac.mozart_next_example)
-        ac.mozart_next_example.triggered.connect(self.goto_next_example)
+        ft = self.filter_toolbar = QToolBar(self)
+        ft.addWidget(self.filter_label)
+        ft.addSeparator()
+        ft.addWidget(self.cb_filter_file)
+        ft.addWidget(self.cb_filter_input)
+        ft.addWidget(self.cb_filter_review)
+        ft.addWidget(self.cb_filter_approved)
+
+        nt = self.nav_toolbar = QToolBar(self)
+        nt.addAction(ac.mozart_process_example)
+        nt.widgetForAction(ac.mozart_process_example).addAction(
+            ac.mozart_process_visible_examples)
+        nt.widgetForAction(ac.mozart_process_example).addAction(
+            ac.mozart_process_examples)
+        process_button = self
+        nt.addSeparator()
+        nt.addAction(ac.mozart_previous_example)
+        nt.addAction(ac.mozart_next_example)
+        nt.addSeparator()
+        nt.addWidget(self.cb_sync_editor)
 
         nav_layout = QHBoxLayout()
-        nav_layout.addWidget(self.filter_label)
-        nav_layout.addWidget(self.cb_filter_file)
-        nav_layout.addWidget(self.cb_filter_input)
-        nav_layout.addWidget(self.cb_filter_review)
-        nav_layout.addWidget(self.cb_filter_approved)
+        nav_layout.addWidget(ft)
         nav_layout.addStretch()
-        nav_layout.addWidget(self.tb_previous_example)
-        nav_layout.addWidget(self.tb_next_example)
-        nav_layout.addWidget(self.cb_sync_editor)
+        nav_layout.addWidget(nt)
 
         # Configure TreeView
         self.model = ExamplesModel(self._config, self)
@@ -115,14 +120,22 @@ class ExamplesWidget(QWidget):
         layout = QVBoxLayout()
         layout.addWidget(self.stats_label)
         layout.addLayout(nav_layout)
-        self.setLayout(layout)
         layout.addWidget(tv)
+        self.setLayout(layout)
 
         self.connect_actions(ac)
         self.load_settings()
         self.populate()
 
     def connect_actions(self, ac):
+        self.cb_filter_file.stateChanged.connect(self.slot_filter_state_changed)
+        self.cb_filter_review.stateChanged.connect(self.slot_filter_state_changed)
+        self.cb_filter_input.stateChanged.connect(self.slot_filter_state_changed)
+        self.cb_filter_approved.stateChanged.connect(self.slot_filter_state_changed)
+        self.cb_sync_editor.stateChanged.connect(self.slot_sync_editor_clicked)
+        ac.mozart_previous_example.triggered.connect(self.goto_previous_example)
+        ac.mozart_next_example.triggered.connect(self.goto_next_example)
+
         self.config().root_requester.changed.connect(self.change_root)
         self.tree_view.customContextMenuRequested.connect(
             self.show_context_menu)
@@ -141,6 +154,11 @@ class ExamplesWidget(QWidget):
         ac.mozart_create_one_voice_2.triggered.connect(self.create_one_voice_2)
         ac.mozart_create_one_system_2.triggered.connect(self.create_files)
         ac.mozart_create_two_systems_2.triggered.connect(self.create_files_2)
+
+        ac.mozart_process_example.triggered.connect(self.process_example)
+        ac.mozart_process_visible_examples.triggered.connect(
+            self.process_visible_examples)
+        ac.mozart_process_examples.triggered.connect(self.process_examples)
 
     def load_settings(self):
         s = QSettings()
@@ -163,11 +181,24 @@ class ExamplesWidget(QWidget):
         früheren Beispiele in umgekehrter Reihenfolge."""
         model = self.model
         current_example = self.example_data('example')
-        examples = [item.text() for item in model.findItems(
-            '1756', Qt.MatchRecursive | Qt.MatchStartsWith)]
+        examples = self.example_names()
         current = examples.index(current_example)
         previous = examples[current-1::-1] if current > 0 else []
         return previous, current_example, examples[current+1:]
+
+    def example_names(self, visible_only=False):
+        model = self.model
+        items = model.findItems(
+            '1756', Qt.MatchRecursive | Qt.MatchStartsWith)
+        if visible_only:
+            result = []
+            for item in items:
+                index = model.indexFromItem(item)
+                if model.proxy().mapFromSource(index).isValid():
+                    result.append(item.text())
+        else:
+            result = [item.text() for item in items]
+        return result
 
     def _goto_next_visible_example(self, examples):
         """Nimmt eine Liste mit Beispielnamen und findet das nächste
@@ -222,6 +253,27 @@ class ExamplesWidget(QWidget):
             + "Zur Korrektur: {} | Akzeptiert: {}".format(
                 review_cnt,
                 approved_cnt))
+
+    def _process_examples(self, target):
+        """Rufe ProcessExamples-Dialog auf.
+        Filtere aus 'target' alle Beispiele, die noch keine Datei besitzen."""
+        from . import process
+        target = ([example for example in target
+            if os.path.exists(os.path.join(
+                self.config().project_root(), '{}.ly'.format(example)))])
+        process.create_examples(target, self)
+
+    def process_example(self):
+        """Erzeuge das ausgewählte Beispiel."""
+        self._process_examples([self.example_data('example')])
+
+    def process_examples(self):
+        """Erzeuge alle Beispiele (die eine Datei haben)."""
+        self._process_examples(self.example_names())
+
+    def process_visible_examples(self):
+        """Erzeuge die sichtbaren Beispiele (sofern sie eine Datei haben)."""
+        self._process_examples(self.example_names(visible_only=True))
 
     def save_settings(self):
         s = QSettings()
