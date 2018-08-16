@@ -21,9 +21,15 @@
 Produce a number of examples for final use.
 """
 
+import codecs
+import os
+import time
+
 from PyQt5.QtCore import (
+    QObject,
     QSettings,
     Qt,
+    QTimer
 )
 from PyQt5.QtGui import (
     QStandardItem,
@@ -44,6 +50,9 @@ from PyQt5.QtWidgets import (
     QWidget
 )
 
+import job
+import lilypondinfo
+import signals
 import widgets.dialog
 
 def create_examples(examples, widget):
@@ -64,6 +73,9 @@ class ProcessDialog(widgets.dialog.Dialog):
             )
 
         self.examples = examples
+        self.queue = JobQueue(
+            self, QSettings().value('mozart/num-runners', 1, int))
+
         ac = widget.action_collection
 
         layout = QGridLayout()
@@ -77,13 +89,19 @@ class ProcessDialog(widgets.dialog.Dialog):
 
         self.activities_view = ActivitiesView(self)
         self.results_view = ResultsView(examples, self)
+        self.queue.create_job_configs(self.results_view.model())
+        self.queue.start_processing()
+        self.queue.finished.connect(self.slot_queue_finished)
 
         layout.addWidget(self.toolbar, 0, 0, 1, 2)
         layout.addWidget(self.activities_view, 1, 0, 1, 1)
         layout.addWidget(self.results_view, 1, 1, 1, 1)
 
-class ActivitiesView(QTableView):
+    def slot_queue_finished(self):
+        pass
 
+class ActivitiesView(QTableView):
+    """Fortschrittsanzeige der verschiedenen Runner."""
     def __init__(self, parent=None):
         super(ActivitiesView, self).__init__(parent)
         num_runners = QSettings().value('mozart/num-runners', 1, int)
@@ -100,6 +118,7 @@ class ActivitiesView(QTableView):
 
 
     def initialize(self, num_runners):
+        """Erzeuge die initialen QStandardItems."""
         root = self.model().invisibleRootItem()
         for i in range(num_runners):
             root.appendRow([QStandardItem('--'), QStandardItem('--')])
@@ -108,32 +127,279 @@ class ActivitiesView(QTableView):
         self.update_runner(runner, '--', '--')
 
     def update_runner(self, runner, example, type):
+        """Zeige Beispiel und Typ in einem Runner an."""
         parent = self.model().invisibleRootItem()
         parent.child(runner, 0).setText(example)
         parent.child(runner, 1).setText(type)
 
+
 class ResultsView(QTableView):
+    """Stellt die Ergebnisse in einer Tabelle dar und
+    hält sie in einem Datenmodell vor."""
 
     def __init__(self, examples, parent=None):
         super(ResultsView, self).__init__(parent)
         self.examples = examples
+        self.types = ['PDF', 'PNG', 'SVG']
         self.setModel(QStandardItemModel())
-        self.model().setHorizontalHeaderLabels(
-            ['PDF', 'PNG', 'SVG'])
-        for col in range(3):
+        self.model().setHorizontalHeaderLabels(self.types)
+        for col in range(len(self.types)):
             self.horizontalHeader().setSectionResizeMode(
                 col, QHeaderView.ResizeToContents)
 
         root = self.model().invisibleRootItem()
         for example in examples:
-            pdf_item = QStandardItem()
-            pdf_item.setCheckable(False)
-            pdf_item.setCheckState(Qt.Unchecked)
-            png_item = QStandardItem(True)
-            png_item.setCheckable(False)
-            png_item.setCheckState(Qt.Unchecked)
-            svg_item = QStandardItem()
-            svg_item.setCheckable(False)
-            svg_item.setCheckState(Qt.Unchecked)
-            root.appendRow([pdf_item, png_item, svg_item])
+            items = []
+            for type in self.types:
+                items.append(QStandardItem())
+                items[-1].setCheckable(False)
+                items[-1].setCheckState(Qt.Unchecked)
+            root.appendRow(items)
         self.model().setVerticalHeaderLabels(examples)
+
+
+class JobConfiguration(QObject):
+    """Konfigurationsobjekt für einen LilyPond-Job.
+    (Kann noch erweitert werden)."""
+    def __init__(self, example, type):
+        super(JobConfiguration, self).__init__()
+        self.example = example
+        self.type = type
+
+    def __repr__(self):
+        return '{} - {}'.format(self.example, self.type)
+
+
+class Runner(QObject):
+    """Koordiniert einen einzelnen LilyPond-Job, holt sich die
+    Jobkonfiguration von der JobQueue."""
+
+    def __init__(self, queue):
+        super(Runner, self).__init__()
+        self.queue = queue
+        self.project_root = queue.project_root
+        self.export_directory = queue.export_directory
+        oll_root_file = os.path.join(self.project_root, 'openlilylib-root')
+        with open(oll_root_file) as f:
+            self.openLilyLib_root = f.read().strip().strip('\n')
+
+        self.job_config = None
+        self.result = None
+        self.job = job.Job()
+        self.job.done.connect(self.slot_job_done)
+
+        # Funktionen, die den LilyPond-Befehl entsprechend des Target-Typs
+        # vervollständigen.
+        self._command_funcs = {
+            'PDF': self._pdf_command,
+            'PNG': self._png_command,
+            'SVG': self._svg_command
+        }
+        # Funktionen, die entsprechend des Target-Typs nach der Kompilierung
+        # aufräumen.
+        self._cleanup_funcs = {
+            'PDF': self._cleanup_pdf,
+            'PNG': self._cleanup_png,
+            'SVG': self._cleanup_svg
+        }
+
+    def _export_files(self):
+        """Gibt eine Liste von Dateien im Exportverzeichnis zurück,
+        die von der Kompilierung erzeugt wurden."""
+        example = self.job_config.example
+        type_base = '{}-{}'.format(example, self.job_config.type)
+        files = os.listdir(self.export_directory)
+        return [file for file in files if file.startswith(type_base)]
+
+    # TODO: Es könnte sein, dass man diese Cleanup-Dateien besser
+    # vereinheitlichen könnte. Das hängt aber davon ab, welche Typen
+    # noch erforderlich werden.
+    def _cleanup_png(self):
+        for file in self._export_files():
+            file_name = os.path.join(self.export_directory, file)
+            if not file.endswith('cropped.png'):
+                os.remove(file_name)
+            else:
+                os.rename(file_name,
+                    os.path.join(self.export_directory, '{}.png'.format(
+                        self.job_config.example)))
+
+    def _cleanup_pdf(self):
+        for file in self._export_files():
+            file_name = os.path.join(self.export_directory, file)
+            if not file.endswith('cropped.pdf'):
+                os.remove(file_name)
+            else:
+                os.rename(file_name,
+                    os.path.join(self.export_directory, '{}.pdf'.format(
+                        self.job_config.example)))
+
+    def _cleanup_svg(self):
+        for file in self._export_files():
+            file_name = os.path.join(self.export_directory, file)
+            if not file.endswith('cropped.svg'):
+                os.remove(file_name)
+            else:
+                os.rename(file_name,
+                    os.path.join(self.export_directory, '{}.svg'.format(
+                        self.job_config.example)))
+
+    def _png_command(self):
+        return ['-dcrop', '--png', '-dresolution=300']
+
+    def _pdf_command(self):
+        return ['-dcrop']
+
+    def _svg_command(self):
+        return ['-dcrop', '-dbackend=svg']
+
+    def command(self, job_config):
+        """Erzeuge den LilyPond-Befehl für das aktuelle Beispiel,
+        entsprechend dem Target-Typ."""
+        info = self.queue.lilypond_info
+        command = [
+            info.abscommand() or info.command,
+            '-ddelete-intermediate-files',
+            '-I', self.project_root,
+            '-I', self.openLilyLib_root,
+            '-o', os.path.join(self.export_directory,
+                '{}-{}'.format(job_config.example, job_config.type))]
+        command.extend(self._command_funcs[job_config.type]())
+        command.append(os.path.join(
+            self.project_root, '{}.ly'.format(job_config.example)))
+        return command
+
+    def slot_job_done(self):
+        """Wird aufgerufen, nachdem der Job erledigt ist.
+        Erzeugt ein results-Dictionary aus dem Job,
+        führt die entsprechenden Cleanup-Funktionen aus,
+        benachrichtit die Queue,
+        startet den nächsten Job."""
+        j = self.job
+        self.results = {
+            'success': j.success,
+            'error': j.error,
+            'history': j.history()
+        }
+        self._cleanup_funcs[self.job_config.type]()
+        self.queue.job_done(self)
+        self.start()
+
+    def start_job(self, job_config):
+        """Startet einen LiyPond-Job."""
+        j = self.job
+        j.decode_errors = 'replace'
+        j.decoder_stdout = j.decoder_stderr = codecs.getdecoder('utf-8')
+        j.command = self.command(job_config)
+        j.environment['LD_LIBRARY_PATH'] = self.queue.lilypond_info.libdir()
+        j.set_title(_(job_config))
+        self.queue.job_started(self, job_config)
+        j.start()
+
+    def start(self):
+        """Holt einen neuen Job und startet diesen.
+        Wenn keine Jobs mehr in der Queue sind, melde mich ab."""
+        self.job_config = self.queue.pop()
+        if self.job_config:
+            self.start_job(self.job_config)
+        else:
+            self.queue.remove_runner(self)
+
+
+class JobQueue(QObject):
+    """MultiThreaded Job Queue."""
+
+    finished = signals.Signal()
+
+    def __init__(self, dialog, count):
+        super(JobQueue, self).__init__()
+        self._dialog = dialog
+        self.lilypond_info = lilypondinfo.preferred()
+        self.timer = None
+        self.job_configs = []
+        s = QSettings()
+        s.beginGroup('mozart')
+        self.project_root = s.value('root')
+        self.export_directory = s.value('export')
+        self._runners = [Runner(self) for i in range(count)]
+
+    def dialog(self):
+        return self._dialog
+
+    def create_job_configs(self, model):
+        """Lese das Datenmodell aus und generiere die Job-Liste."""
+        self._model = model
+        self.job_configs = []
+        for i in range(model.rowCount()):
+            example = model.verticalHeaderItem(i).text()
+            for j in range(model.columnCount()):
+                self.job_configs.append(JobConfiguration(
+                    example, model.horizontalHeaderItem(j).text()))
+        self.job_configs = [job for job in reversed(self.job_configs)]
+
+    def job_done(self, runner):
+        """Verarbeite die Ergebnisse eines geleisteten Jobs."""
+        self._jobs_done += 1
+        self.update_message()
+        job_config = runner.job_config
+        results = runner.results
+        runner_index = self._runners.index(runner)
+        self.dialog().activities_view.stop_runner(runner_index)
+
+        example_index = self.dialog().examples.index(job_config.example)
+        column = self.dialog().results_view.types.index(job_config.type)
+        check_box = self._model.invisibleRootItem().child(example_index, column)
+        if results['success']:
+            check_box.setCheckState(2)
+        else:
+            check_box.setCheckState(1)
+            log = [line[0] for line in results['history']]
+            for line in log:
+                print(line)
+            #TODO: log speichern und im GUI zugänglich machen.
+            #TODO: Von hier aus in Editor öffnen
+
+    def job_started(self, runner, job_config):
+        """Aktualisiere die Anzeige des laufenden Jobs."""
+        self.dialog().activities_view.update_runner(
+            self._runners.index(runner),
+            job_config.example,
+            job_config.type)
+
+    def pop(self):
+        """Gebe einen Job heraus, sofern noch welche vorhanden sind."""
+        if not self.job_configs:
+            return False
+        return self.job_configs.pop()
+
+    def remove_runner(self, runner):
+        """Setze einen Runner auf None, wenn er keine Jobs mehr hat.
+        Wenn alle Runner None sind, ist der Prozess fertig."""
+        self._runners[self._runners.index(runner)] = None
+        for runner in self._runners:
+            if runner:
+                return
+        self.timer.stop()
+        self.finished.emit()
+
+    def update_message(self):
+        """Aktualisiere die Status-Message."""
+        self.message = "Bearbeitung: {} | {} ({}) Jobs erledigt."
+        self.dialog().setMessage(self.message.format(
+            job.Job.elapsed2str(time.time() - self._starttime),
+            self._jobs_done,
+            self._job_count))
+
+    def start_processing(self):
+        """Beginne den Prozess, setze die Metadaten, starte den Timer
+        (für die Status-Anzeige). Bitte alle Runner, die Bearbeitung zu
+        starten."""
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_message)
+        self._starttime = time.time()
+        self._job_count = len(self.job_configs)
+        self._jobs_done = 0
+        self.update_message()
+        self.timer.start(1000)
+        for runner in self._runners:
+            runner.start()
