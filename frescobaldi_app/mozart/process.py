@@ -72,11 +72,12 @@ class ProcessDialog(widgets.dialog.Dialog):
             #message="Hey, das ist die Message"
             )
 
+        self.widget = widget
+        ac = widget.action_collection
+
         self.examples = examples
         self.queue = JobQueue(
             self, QSettings().value('mozart/num-runners', 1, int))
-
-        ac = widget.action_collection
 
         layout = QGridLayout()
         self.mainWidget().setLayout(layout)
@@ -302,26 +303,52 @@ class Runner(QObject):
         self.job_config = self.queue.pop()
         if self.job_config:
             self.start_job(self.job_config)
-        else:
+        elif self.queue.state in [JobQueue.EMPTY, JobQueue.FINISHED]:
             self.queue.remove_runner(self)
+        else:
+            # in Pause
+            pass
 
 
 class JobQueue(QObject):
     """MultiThreaded Job Queue."""
 
     finished = signals.Signal()
+    INACTIVE = 0
+    STARTED = 1
+    PAUSED = 2
+    EMPTY = 3
+    FINISHED = 4
 
     def __init__(self, dialog, count):
         super(JobQueue, self).__init__()
+        self.state = JobQueue.INACTIVE
         self._dialog = dialog
         self.lilypond_info = lilypondinfo.preferred()
-        self.timer = None
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_message)
         self.job_configs = []
+        self._runners = []
         s = QSettings()
         s.beginGroup('mozart')
         self.project_root = s.value('root')
         self.export_directory = s.value('export')
         self._runners = [Runner(self) for i in range(count)]
+
+        ac = self.action_collection = self.dialog().widget.action_collection
+        ac.mozart_process_pause.triggered.connect(self.pause)
+        ac.mozart_process_resume.triggered.connect(self.resume)
+        ac.mozart_process_abort.triggered.connect(self.abort)
+
+    def abort(self):
+        self.state = JobQueue.FINISHED
+        ac = self.action_collection
+        ac.mozart_process_abort.setEnabled(False)
+        ac.mozart_process_resume.setEnabled(False)
+        ac.mozart_process_pause.setEnabled(False)
+        self.job_configs = []
+        for runner in self._runners:
+            runner.job.abort()
 
     def dialog(self):
         return self._dialog
@@ -366,11 +393,20 @@ class JobQueue(QObject):
             job_config.example,
             job_config.type)
 
+    def pause(self):
+        self.state = JobQueue.PAUSED
+        self.action_collection.mozart_process_pause.setEnabled(False)
+        self.action_collection.mozart_process_resume.setEnabled(True)
+        self.timer.stop()
+
     def pop(self):
         """Gebe einen Job heraus, sofern noch welche vorhanden sind."""
-        if not self.job_configs:
+        if not self.job_configs or self.state != JobQueue.STARTED:
             return False
-        return self.job_configs.pop()
+        new_jobconfig = self.job_configs.pop()
+        if not self.job_configs:
+            self.state = JobQueue.EMPTY
+        return new_jobconfig
 
     def remove_runner(self, runner):
         """Setze einen Runner auf None, wenn er keine Jobs mehr hat.
@@ -382,24 +418,36 @@ class JobQueue(QObject):
         self.timer.stop()
         self.finished.emit()
 
+    def resume(self):
+        if not self.state in [JobQueue.EMPTY, JobQueue.FINISHED]:
+            self.action_collection.mozart_process_resume.setEnabled(False)
+            self.action_collection.mozart_process_pause.setEnabled(True)
+            self._start()
+
+
     def update_message(self):
         """Aktualisiere die Status-Message."""
         self.message = "Bearbeitung: {} | {} ({}) Jobs erledigt."
         self.dialog().setMessage(self.message.format(
-            job.Job.elapsed2str(time.time() - self._starttime),
+            job.Job.elapsed2str(int(time.time() - self._starttime)),
             self._jobs_done,
             self._job_count))
+
+    def _start(self):
+        self.state = JobQueue.STARTED
+        self.update_message()
+        self.timer.start(1000)
+        for runner in self._runners:
+            runner.start()
 
     def start_processing(self):
         """Beginne den Prozess, setze die Metadaten, starte den Timer
         (für die Status-Anzeige). Bitte alle Runner, die Bearbeitung zu
         starten."""
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.update_message)
+        self.action_collection.mozart_process_abort.setEnabled(True)
+        self.action_collection.mozart_process_pause.setEnabled(True)
+        self.action_collection.mozart_process_resume.setEnabled(False)
         self._starttime = time.time()
         self._job_count = len(self.job_configs)
         self._jobs_done = 0
-        self.update_message()
-        self.timer.start(1000)
-        for runner in self._runners:
-            runner.start()
+        self._start()
