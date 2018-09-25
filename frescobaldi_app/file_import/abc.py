@@ -25,8 +25,6 @@ In the dialog the options of abc2ly can be set.
 
 
 import os
-import subprocess
-import sys
 
 from PyQt5.QtCore import QSettings, QSize
 from PyQt5.QtWidgets import (QCheckBox, QComboBox, QDialogButtonBox, QLabel)
@@ -42,9 +40,6 @@ class Dialog(toly_dialog.ToLyDialog):
 
     def __init__(self, parent=None):
 
-        self.imp_prgm = "abc2ly"
-        self.userg = "abc_import"
-
         self.nobeamCheck = QCheckBox()
 
         self.impChecks = [self.nobeamCheck]
@@ -53,12 +48,13 @@ class Dialog(toly_dialog.ToLyDialog):
 
         self.impExtra = []
 
-        super(Dialog, self).__init__(parent)
+        super(Dialog, self).__init__(
+            parent,
+            imp_prgm='abc2ly',
+            userg='abc_import')
 
         app.translateUI(self)
         qutil.saveDialogSize(self, "abc_import/dialog/size", QSize(480, 160))
-
-        self.makeCommandLine()
 
         self.loadSettings()
 
@@ -69,47 +65,10 @@ class Dialog(toly_dialog.ToLyDialog):
 
         super(Dialog, self).translateUI()
 
-    def makeCommandLine(self):
-        """Reads the widgets and builds a command line."""
-        cmd = ["$abc2ly"]
+    def configure_job(self):
+        super(Dialog, self).configure_job()
         if self.nobeamCheck.isChecked():
-            cmd.append('-b')
-
-        cmd.append("$filename")
-        self.commandLine.setText(' '.join(cmd))
-
-    def run_command(self):
-        """ABC import (at least for now) needs a specific solution here."""
-        cmd = self.getCmd('document.ly')
-        directory = util.tempdir()
-        subenviron = None
-        if os.name == "nt":
-            # Python 2.7 subprocess on Windows chokes on unicode in env
-            subenviron = util.bytes_environ()
-        else:
-            subenviron = dict(os.environ)
-        if sys.platform.startswith('darwin'):
-            try:
-                del subenviron['PYTHONHOME']
-            except KeyError:
-                pass
-            try:
-                del subenviron['PYTHONPATH']
-            except KeyError:
-                pass
-        proc = subprocess.Popen(cmd, cwd=directory,
-            env = subenviron,
-            stdin = subprocess.PIPE,
-            stdout = subprocess.PIPE,
-            stderr = subprocess.PIPE)
-        stdouterr = proc.communicate()
-        if not stdouterr[0]:
-            try:
-                with open(os.path.join(directory, cmd[-1])) as abc:
-                    stdouterr = (abc.read(), stdouterr[1])
-            except IOError:
-                pass
-        return stdouterr
+            self._job.add_argument('-b')
 
     def loadSettings(self):
         """Get users previous settings."""
