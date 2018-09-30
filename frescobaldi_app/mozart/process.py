@@ -207,6 +207,9 @@ class ProcessDialog(widgets.dialog.Dialog):
         self.create_jobs()
         if self._job_handlers:
             self.queue.finished.connect(self.slot_queue_finished)
+            self.button('cancel').clicked.disconnect()
+            self.button('cancel').clicked.connect(self.abort)
+            self.button('ok').setEnabled(False)
             self.queue.start()
             self._ticker.start()
         else:
@@ -281,13 +284,14 @@ class ProcessDialog(widgets.dialog.Dialog):
         return omod >= imod
 
     def slot_queue_finished(self):
-        print("Queue finished")
         self._ticker.stop()
         ac = self.widget.action_collection
         ac.mozart_process_abort.setEnabled(False)
         ac.mozart_process_resume.setEnabled(False)
         ac.mozart_process_pause.setEnabled(False)
         self.final_message()
+        self.button('cancel').setEnabled(False)
+        self.button('ok').setEnabled(True)
 
     def checkbox(self, jobinfo):
         if isinstance(jobinfo, JobHandler):
@@ -344,7 +348,6 @@ class ProcessDialog(widgets.dialog.Dialog):
 
     def update_message(self):
         """Aktualisiere die Status-Message."""
-        print("Update")
         self.message = "Bearbeitung: {} | {} ({}) Jobs erledigt."
         self.setMessage(self.message.format(
             job.Job.elapsed2str(int(time.time() - self.queue._starttime)),
