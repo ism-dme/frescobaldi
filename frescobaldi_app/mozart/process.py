@@ -28,6 +28,8 @@ import os
 import time
 
 from PyQt5.QtCore import (
+    QFileDevice,
+    QFileInfo,
     QObject,
     QSettings,
     Qt,
@@ -173,6 +175,7 @@ class ProcessDialog(widgets.dialog.Dialog):
             self.openLilyLib_root = f.read().strip().strip('\n')
 
         self._job_count = 0
+        self._skipped_count = 0
         self._jobs_done = 0
 
         self._ticker = QTimer()
@@ -202,9 +205,13 @@ class ProcessDialog(widgets.dialog.Dialog):
         layout.addWidget(self.results_view, 1, 1, 1, 1)
 
         self.create_jobs()
-        self.queue.finished.connect(self.slot_queue_finished)
-        self.queue.start()
-        self._ticker.start()
+        if self._job_handlers:
+            self.queue.finished.connect(self.slot_queue_finished)
+            self.queue.start()
+            self._ticker.start()
+        else:
+            # All examples are up-to-date
+            self.setMessage("Alle Beispiele waren aktuell.")
 
     def abort(self):
         self.status = "Abbruch durch Benutzer"
@@ -234,13 +241,44 @@ class ProcessDialog(widgets.dialog.Dialog):
     def create_jobs(self):
         """Generate the ."""
         model = self.results_view.model()
+        types = ['PDF', 'PNG', 'SVG']
         for i in range(model.rowCount()):
             example = model.verticalHeaderItem(i).text()
-            for type in ['PDF', 'PNG', 'SVG']:
-                self._job_count += 1
-                # Storing references in a list, just to keep the objects alive.
-                self._job_handlers.append(JobHandler(self, example, type))
-                self._job_handlers[-1].enqueue()
+            for type in types:
+                if not self.up_to_date(example, type):
+                    self._job_count += 1
+                    # Storing references in a list,
+                    # necessary to keep the objects alive.
+                    self._job_handlers.append(JobHandler(self, example, type))
+                    self._job_handlers[-1].enqueue()
+                else:
+                    self._skipped_count += 1
+                    checkbox = self.checkbox({
+                        'example': example,
+                        'type': type})
+                    checkbox.setCheckState(2)
+                    checkbox.setForeground(QBrush(QColor(0, 196, 255)))
+
+    def up_to_date(self, example, type):
+        """Return True if the file modification time of the
+        output file is later than the input file."""
+
+        # TODO:
+        # This fails when switching Git branches updates the input
+        # files' modification date, resulting in unnecessary recompilations.
+        # There should be better heuristics checking against Git status of
+        # the input files.
+        outfile = os.path.join(
+            self.export_directory,
+            '{}.{}'.format(example, type.lower()))
+        if not os.path.isfile(outfile):
+            return False
+        omod = QFileInfo(outfile).fileTime(QFileDevice.FileModificationTime)
+        infile = os.path.join(
+            self.project_root,
+            '{}.ly'.format(example))
+        imod = QFileInfo(infile).fileTime(QFileDevice.FileModificationTime)
+        return omod >= imod
 
     def slot_queue_finished(self):
         print("Queue finished")
@@ -252,9 +290,15 @@ class ProcessDialog(widgets.dialog.Dialog):
         self.final_message()
 
     def checkbox(self, jobinfo):
+        if isinstance(jobinfo, JobHandler):
+            example = jobinfo.example
+            type = jobinfo.type
+        else:
+            example = jobinfo['example']
+            type = jobinfo['type']
         return self.results_view.model().invisibleRootItem().child(
-            self.examples.index(jobinfo.example),
-            self.results_view.types.index(jobinfo.type)
+            self.examples.index(example),
+            self.results_view.types.index(type)
         )
 
     def job_done(self, jobinfo):
@@ -290,10 +334,12 @@ class ProcessDialog(widgets.dialog.Dialog):
 
     def final_message(self):
         self.setMessage(("{}\n" +
-            "{} Jobs in {} erledigt").format(
+            "{} Jobs in {} erledigt.\n" +
+            "{} aktuelle Jobs übersprungen").format(
                 self.status,
                 self._jobs_done,
-                job.Job.elapsed2str(time.time() - self.queue._starttime)
+                job.Job.elapsed2str(time.time() - self.queue._starttime),
+                self._skipped_count
             ))
 
     def update_message(self):
