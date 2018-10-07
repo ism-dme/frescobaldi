@@ -503,7 +503,6 @@ class ExamplesWidget(QWidget):
         file_url = QUrl(file_name)
         file_url.setScheme('file')
         doc = app.openUrl(file_url)
-        print(self.example_data())
         if self.example_data('include'):
             include_url = QUrl(include_name)
             include_url.setScheme('file')
