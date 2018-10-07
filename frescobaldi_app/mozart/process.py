@@ -25,6 +25,7 @@ resume the process.
 """
 
 import os
+import re
 import time
 
 from PyQt5.QtCore import (
@@ -62,85 +63,192 @@ def create_examples(examples, widget):
     dlg.exec_()
 
 
-class JobHandler(QObject):
-    """Manages an individual LilyPond job.
+TYPES = ['PDF', 'PNG300', 'PNG72', 'SVG']
 
-    Constructs the LilyPond job and keeps the connection between
-    the JobQueue and the GUI. Responsible for cleaning up temporary
+
+# Classes to handle file conversions from PDF to other image formats.
+# AbstractConversion and its descendants are used by Conversion.create()
+# to create a job.Job object with the appropriate command.
+
+class AbstractConversion(job.Job):
+
+
+    def __init__(self, filename):
+        directory, self.filename = os.path.split(filename)
+        self.basename = os.path.splitext(self.filename)[0]
+        super(AbstractConversion, self).__init__(self.conversion_command())
+        self.set_directory(directory)
+
+    def conversion_command(self):
+        raise NotImplementedError
+
+
+class PNGConversion(AbstractConversion):
+
+    def __init__(self, filename):
+        super(PNGConversion, self).__init__(filename)
+
+    def conversion_command(self):
+        cmd = ['convert',
+               '-density',
+               self.density(),
+               self.filename,
+               '{}-{}.png'.format(self.basename, self.resolution)]
+        return cmd
+
+    def density(self):
+        return '{}x{}'.format(self.resolution, self.resolution)
+
+
+class PNG300Conversion(PNGConversion):
+    resolution = '300'
+
+
+class PNG72Conversion(PNGConversion):
+    resolution = '72'
+
+
+class SVGConversion(AbstractConversion):
+
+    def __init__(self, filename):
+        super(SVGConversion, self).__init__(filename)
+
+    def conversion_command(self):
+        return ['pdftocairo',
+               '-svg',
+               self.filename,
+               '{}.svg'.format(self.basename)]
+
+
+class Conversion(QObject):
+
+    classes = {
+        'PNG300': PNG300Conversion,
+        'PNG72': PNG72Conversion,
+        'SVG': SVGConversion
+    }
+
+    @classmethod
+    def create(cls, filename, type):
+        return Conversion.classes[type](filename)
+
+
+class AbstractJobHandler(QObject):
+    """Manages an individual engraving/conversion job.
+
+    Constructs the job and keeps the connection between the
+    JobQueue and the GUI. Responsible for cleaning up temporary
     files and for notifying the GUI about the state.
 
     """
 
-    def __init__(self, dialog, example, type):
-        super(JobHandler, self).__init__()
+    def __init__(self, dialog, example):
+        super(AbstractJobHandler, self).__init__()
         self.dialog = dialog
         self.example = example
-        self.type = type
-        self.basename = '{}-{}'.format(example, type)
         self.project_root = dialog.project_root
         self.export_directory = dialog.export_directory
-        self.openLilyLib_root = dialog.openLilyLib_root
-        self._backend_args = {
-            'PDF': ['-dcrop'],
-            'PNG': ['-dcrop', '--png', '-dresolution=300'],
-            'SVG': ['-dcrop', '-dbackend=svg']
-        }
         self._job = None
 
     def cleanup_files(self):
-        """Cleanup of the temporary files produced by the LilyPond run,
-        only retaining the cropped output file.
-        Also rename the resulting file to the canonical template."""
-        ext = self.type.lower()
-        for file in self.export_files():
-            file_name = os.path.join(self.export_directory, file)
-            if not file.endswith('cropped.{}'.format(ext)):
-                os.remove(file_name)
-            else:
-                os.rename(file_name,
-                    os.path.join(self.export_directory, '{}.{}'.format(
-                        self.example, ext)))
+        """Remove intermediate files. May be implemented in subclasses."""
+        pass
+
+    def _create_job(self):
+        """Create the actual job.Job instance.
+        Must be implemented in subclasses."""
+        raise NotImplementedError
 
     def enqueue(self):
         """Add the current (newly created) job to the queue."""
-        j = self.job()
-        self.dialog.queue.add_job(j)
-
-    def export_files(self):
-        """Returns a list of all files in the export directory
-        that start with the current job's example/type signature."""
-        files = os.listdir(self.export_directory)
-        return [file for file in files if file.startswith(self.basename)]
+        self.dialog.queue.add_job(self.job())
 
     def job(self):
-        """Return the job. If it isn't available yet, create a LilyPond
-        job and configure it for the current example/type."""
+        """Return the job. If it isn't available yet, create a
+        job and configure it for the current engraving/conversion."""
         if not self._job:
-            example = self.example
-            type = self.type
-            self._job = j = job.lilypond.PublishJob(
-                QUrl.fromLocalFile(
-                os.path.join(self.project_root, '{}.ly'.format(example))),
-                title='{}: {}'.format(example, type))
-            j.set_d_option('delete-intermediate-files')
-            j.add_include_path(self.project_root)
-            j.add_include_path(self.openLilyLib_root)
-            j.add_argument('--output={}'.format(os.path.join(
-                self.export_directory,
-                '{}-{}'.format(example, type))))
-            j.set_backend_args(self._backend_args[type])
-            j.started.connect(self.slot_job_started)
-            j.done.connect(self.slot_job_done)
+            self._create_job()
+            self._job.started.connect(self.slot_job_started)
+            self._job.done.connect(self.slot_job_done)
         return self._job
 
     def slot_job_done(self):
         """Process results after completion of the job."""
-        self.dialog.job_done(self)
-        self.cleanup_files()
+        raise NotImplementedError
 
     def slot_job_started(self):
         """Update the progress dialog."""
-        self.dialog.job_started(self)
+        self.dialog.job_started(self, self.type)
+
+
+class ConversionJobHandler(AbstractJobHandler):
+    """Handle a file format conversion."""
+
+    def __init__(self, dialog, file, type):
+        self.filename = file
+        example = os.path.splitext(os.path.basename(file))[0]
+        example = re.match('1756_\d\d\d_\d+', example).group()
+        super(ConversionJobHandler, self).__init__(dialog, example)
+        self.type = type
+
+    def _create_job(self):
+        """Ask the Conversion.create factory function to create
+        an AbstractConversion instance depending on the format type."""
+        self._job = Conversion.create(self.filename, self.type)
+
+    def slot_job_done(self):
+        """Update dialog."""
+        self.dialog.job_done(self)
+
+
+class LilyPondJobHandler(AbstractJobHandler):
+    """Handle a LilyPond engraving Job."""
+
+    def __init__(self, dialog, example):
+        super(LilyPondJobHandler, self).__init__(dialog, example)
+        self._result_files = []
+        self.openLilyLib_root = dialog.openLilyLib_root
+        self.type = 'PDF'
+
+    def _create_job(self):
+        """Create the job.lilypond.LilyPondJob to engrave
+        the given example."""
+        example = self.example
+        self._job = j = job.lilypond.PublishJob(
+            QUrl.fromLocalFile(
+            os.path.join(self.project_root, '{}.ly'.format(example))),
+            title='{}: pdf'.format(example))
+        j.set_d_option('delete-intermediate-files')
+        j.set_d_option('systems')
+        j.add_include_path(self.project_root)
+        j.add_include_path(self.openLilyLib_root)
+        j.add_argument('--output={}'.format(os.path.join(
+            self.export_directory,
+            '{}'.format(example))))
+        j.set_backend_args(['-dcrop'])
+
+    def cleanup_files(self):
+        """Cleanup of the temporary files produced by the LilyPond run,
+        only retaining the PDF and the <example>-systems.count files."""
+        for file in self.created_files():
+            base_name, ext = os.path.splitext(file)
+            file_name = os.path.join(self.export_directory, file)
+            if not ext in ['.pdf', '.count']:
+                os.remove(file_name)
+            elif ext == '.pdf':
+                self._result_files.append(file_name)
+
+    def created_files(self):
+        """Returns a list of all files in the export directory
+        that start with the current job name."""
+        files = os.listdir(self.export_directory)
+        return [file for file in files if file.startswith(self.example)]
+
+    def slot_job_done(self):
+        """Remove unneeded files and update dialog."""
+        self.cleanup_files()
+        self.dialog.add_result_files(self._result_files)
+        self.dialog.job_done(self)
 
 
 class ProcessDialog(widgets.dialog.Dialog):
@@ -167,9 +275,8 @@ class ProcessDialog(widgets.dialog.Dialog):
         self.project_root = s.value('root')
         self.export_directory = s.value('export')
         self.queue = job.queue.JobQueue(
-            num_runners=s.value('num-runners', 1, int),
-            queue_mode=QueueMode.SINGLE)
-
+            num_runners=s.value('num-runners', 1, int))
+        self.queue.idle.connect(self.enqueue_conversions)
         oll_root_file = os.path.join(self.project_root, 'openlilylib-root')
         with open(oll_root_file) as f:
             self.openLilyLib_root = f.read().strip().strip('\n')
@@ -177,6 +284,7 @@ class ProcessDialog(widgets.dialog.Dialog):
         self._job_count = 0
         self._skipped_count = 0
         self._jobs_done = 0
+        self._result_files = []
 
         self._ticker = QTimer()
         self._ticker.setInterval(1000)
@@ -206,11 +314,9 @@ class ProcessDialog(widgets.dialog.Dialog):
 
         self.create_jobs()
         if self._job_handlers:
-            self.queue.finished.connect(self.slot_queue_finished)
             self.button('cancel').clicked.disconnect()
             self.button('cancel').clicked.connect(self.abort)
             self.button('ok').setEnabled(False)
-            self.queue.start()
             self._ticker.start()
         else:
             # All examples are up-to-date
@@ -241,30 +347,56 @@ class ProcessDialog(widgets.dialog.Dialog):
         self._ticker.start()
         self.queue.resume()
 
+    def add_result_files(self, files):
+        """Add files to the list of result files. Needed to
+        generate the list of conversion jobs."""
+        self._result_files.extend(
+            [file for file in files if file.endswith('.pdf')])
+
     def create_jobs(self):
-        """Generate the ."""
+        """Generate the LilyPond jobs to engrave all requested examples."""
+        type_cnt = len(TYPES)
         model = self.results_view.model()
-        types = ['PDF', 'PNG', 'SVG']
         for i in range(model.rowCount()):
             example = model.verticalHeaderItem(i).text()
-            for type in types:
-                if not self.up_to_date(example, type):
-                    self._job_count += 1
-                    # Storing references in a list,
-                    # necessary to keep the objects alive.
-                    self._job_handlers.append(JobHandler(self, example, type))
-                    self._job_handlers[-1].enqueue()
-                else:
-                    self._skipped_count += 1
+            if self.up_to_date(example):
+                self._skipped_count += type_cnt
+                for type in TYPES:
                     checkbox = self.checkbox({
                         'example': example,
                         'type': type})
                     checkbox.setCheckState(2)
                     checkbox.setForeground(QBrush(QColor(0, 196, 255)))
+            else:
+                self._job_count += type_cnt
+                # Storing references in a list,
+                # necessary to keep the objects alive.
+                self._job_handlers.append(LilyPondJobHandler(self, example))
+                self._job_handlers[-1].enqueue()
 
-    def up_to_date(self, example, type):
+    def enqueue_conversions(self):
+        """Triggered when the queue is getting IDLE (for the first time).
+        Now all scores have been engraved to PDF, and we can create
+        and enqueue the jobs to convert the resulting files to the
+        additional image formats"""
+        self.queue.idle.disconnect(self.enqueue_conversions)
+        self.queue.idle.connect(self.slot_queue_finished)
+        self._job_handlers = []
+        # temorarily stop the queue to avoid any race conditions
+        self.queue.pause()
+        for file in self._result_files:
+            for type in [type for type in TYPES if type != 'PDF']:
+                self._job_handlers.append(ConversionJobHandler(self, file, type))
+                self._job_handlers[-1].enqueue()
+        self.queue.resume()
+
+    def up_to_date(self, example):
         """Return True if the file modification time of the
-        output file is later than the input file."""
+        output file is later than the input file.
+        NOTE: This only takes care about the '<example>.pdf' file,
+        the other example types are ignored. So this is a check for
+        current-ness of examples but doesn't notice files that have
+        been deleted externally."""
 
         # TODO:
         # This fails when switching Git branches updates the input
@@ -273,7 +405,7 @@ class ProcessDialog(widgets.dialog.Dialog):
         # the input files.
         outfile = os.path.join(
             self.export_directory,
-            '{}.{}'.format(example, type.lower()))
+            '{}.pdf'.format(example))
         if not os.path.isfile(outfile):
             return False
         omod = QFileInfo(outfile).fileTime(QFileDevice.FileModificationTime)
@@ -284,6 +416,8 @@ class ProcessDialog(widgets.dialog.Dialog):
         return omod >= imod
 
     def slot_queue_finished(self):
+        """Triggered when the queue reaches IDLE for the second
+        time, i.e. after converting all example PDFs to the other formats."""
         self._ticker.stop()
         ac = self.widget.action_collection
         ac.mozart_process_abort.setEnabled(False)
@@ -294,7 +428,9 @@ class ProcessDialog(widgets.dialog.Dialog):
         self.button('ok').setEnabled(True)
 
     def checkbox(self, jobinfo):
-        if isinstance(jobinfo, JobHandler):
+        """"Determine the "results view" checkbox corresponding
+        tot he given jobinfo."""
+        if isinstance(jobinfo, AbstractJobHandler):
             example = jobinfo.example
             type = jobinfo.type
         else:
@@ -302,10 +438,10 @@ class ProcessDialog(widgets.dialog.Dialog):
             type = jobinfo['type']
         return self.results_view.model().invisibleRootItem().child(
             self.examples.index(example),
-            self.results_view.types.index(type)
-        )
+            TYPES.index(type))
 
     def job_done(self, jobinfo):
+        """Update the results View after the job has been completed."""
         check_box = self.checkbox(jobinfo)
         if self.queue.state() == QueueStatus.ABORTED:
             check_box.setCheckState(1)
@@ -327,14 +463,13 @@ class ProcessDialog(widgets.dialog.Dialog):
             #TODO: log speichern und im GUI zugänglich machen.
             #TODO: Von hier aus in Editor öffnen
 
-    def job_started(self, jobinfo):
+    def job_started(self, jobinfo, type='PDF'):
         self.activities_view.update_runner(
             jobinfo.job().runner().index(),
             jobinfo.example,
-            jobinfo.type)
+            type)
         check_box = self.checkbox(jobinfo)
         check_box.setCheckState(1)
-
 
     def final_message(self):
         self.setMessage(("{}\n" +
@@ -371,7 +506,6 @@ class ActivitiesView(QTableView):
         self.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
 
-
     def initialize(self, num_runners):
         """Erzeuge die initialen QStandardItems."""
         root = self.model().invisibleRootItem()
@@ -395,17 +529,16 @@ class ResultsView(QTableView):
     def __init__(self, examples, parent=None):
         super(ResultsView, self).__init__(parent)
         self.examples = examples
-        self.types = ['PDF', 'PNG', 'SVG']
         self.setModel(QStandardItemModel())
-        self.model().setHorizontalHeaderLabels(self.types)
-        for col in range(len(self.types)):
+        self.model().setHorizontalHeaderLabels(TYPES)
+        for col in range(len(TYPES)):
             self.horizontalHeader().setSectionResizeMode(
                 col, QHeaderView.ResizeToContents)
 
         root = self.model().invisibleRootItem()
         for example in examples:
             items = []
-            for type in self.types:
+            for type in TYPES:
                 items.append(QStandardItem())
                 items[-1].setCheckable(False)
                 items[-1].setCheckState(Qt.Unchecked)
