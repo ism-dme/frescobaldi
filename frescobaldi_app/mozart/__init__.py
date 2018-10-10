@@ -57,6 +57,10 @@ class Actions(actioncollection.ActionCollection):
         self.mozart_previous_example.setIcon(icons.get('go-previous'))
         self.mozart_next_example = QAction(parent)
         self.mozart_next_example.setIcon(icons.get('go-next'))
+        self.mozart_previous_empty_example = QAction(parent)
+        self.mozart_previous_empty_example.setIcon(icons.get('go-jump-back'))
+        self.mozart_next_empty_example = QAction(parent)
+        self.mozart_next_empty_example.setIcon(icons.get('go-jump'))
 
         # Show examples actions
         self.mozart_open_file = QAction(parent)
@@ -91,6 +95,8 @@ class Actions(actioncollection.ActionCollection):
     def translateUI(self):
         self.mozart_previous_example.setText("&Voriges Beispiel")
         self.mozart_next_example.setText("&Nächstes Beispiel")
+        self.mozart_previous_empty_example.setText("Voriges nicht bearbeitetes Beispiel")
+        self.mozart_next_empty_example.setText("Nächstes nicht bearbeitetes Beispiel")
         self.mozart_open_file.setText("Öffne in &Editor")
         self.mozart_open_file_exclusive.setText("Öffne in Editor (e&xklusiv)")
         self.mozart_close_file.setText("&Schließe im Editor")

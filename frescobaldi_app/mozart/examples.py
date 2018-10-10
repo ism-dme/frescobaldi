@@ -100,8 +100,10 @@ class ExamplesWidget(QWidget):
             ac.mozart_process_examples)
         process_button = self
         nt.addSeparator()
+        nt.addAction(ac.mozart_previous_empty_example)
         nt.addAction(ac.mozart_previous_example)
         nt.addAction(ac.mozart_next_example)
+        nt.addAction(ac.mozart_next_empty_example)
         nt.addSeparator()
         nt.addWidget(self.cb_sync_editor)
 
@@ -133,8 +135,10 @@ class ExamplesWidget(QWidget):
         self.cb_filter_input.stateChanged.connect(self.slot_filter_state_changed)
         self.cb_filter_approved.stateChanged.connect(self.slot_filter_state_changed)
         self.cb_sync_editor.stateChanged.connect(self.slot_sync_editor_clicked)
+        ac.mozart_previous_empty_example.triggered.connect(self.goto_previous_empty_example)
         ac.mozart_previous_example.triggered.connect(self.goto_previous_example)
         ac.mozart_next_example.triggered.connect(self.goto_next_example)
+        ac.mozart_next_empty_example.triggered.connect(self.goto_next_empty_example)
 
         self.config().root_requester.changed.connect(self.change_root)
         self.tree_view.customContextMenuRequested.connect(
@@ -200,7 +204,7 @@ class ExamplesWidget(QWidget):
             result = [item.text() for item in items]
         return result
 
-    def _goto_next_visible_example(self, examples):
+    def _goto_next_visible_example(self, examples, with_file=True):
         """Nimmt eine Liste mit Beispielnamen und findet das nächste
         Beispiel, das nicht ausgefiltert ist. Anschließend wird dieses
         Beispiel exklusiv geöffnet."""
@@ -212,19 +216,33 @@ class ExamplesWidget(QWidget):
             if mapped.isValid():
                 self.tree_view.scrollTo(mapped)
                 self.tree_view.selectionModel().select(mapped, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
-                if self.open_file_exclusive():
+                if self.example_data('file') == with_file:
                     return True
         return False
+
+    def goto_next_empty_example(self):
+        """Selektiert das nächste (nicht gefilterte) Beispiel ohne Datei"""
+        _, _, remain = self._example_names_split()
+        if self._goto_next_visible_example(remain, with_file=False):
+            self.show_manuscript()
 
     def goto_next_example(self):
         """Öffnet das nächste (nicht gefilterte) Beispiel."""
         _, _, remain = self._example_names_split()
-        self._goto_next_visible_example(remain)
+        if self._goto_next_visible_example(remain):
+            self.open_file_exclusive()
+
+    def goto_previous_empty_example(self):
+        """Selektiert das vorherige (nicht gefilterte) Beispiel ohne Datei"""
+        previous, _, _ = self._example_names_split()
+        if self._goto_next_visible_example(previous, with_file=False):
+            self.show_manuscript()
 
     def goto_previous_example(self):
         """Öffnet das vorherige (nicht gefilterte) Beispiel."""
         previous, _, _ = self._example_names_split()
-        self._goto_next_visible_example(previous)
+        if self._goto_next_visible_example(previous):
+            self.open_file_exclusive()
 
     def mainwindow(self):
         return app.activeWindow()
