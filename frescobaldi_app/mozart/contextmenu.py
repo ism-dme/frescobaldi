@@ -31,8 +31,10 @@ class ContextMenu(QMenu):
         super(ContextMenu, self).__init__(parent)
 
         ac = self.action_collection = parent.action_collection
+        self.addAction(ac.mozart_previous_empty_example)
         self.addAction(ac.mozart_previous_example)
         self.addAction(ac.mozart_next_example)
+        self.addAction(ac.mozart_next_empty_example)
         self.addSeparator()
 
         self.addAction(ac.mozart_open_file)
