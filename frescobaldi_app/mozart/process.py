@@ -55,11 +55,13 @@ from job.queue import QueueMode, QueueStatus
 import signals
 import widgets.dialog
 
-def create_examples(examples, widget):
+def create_examples(examples, overview, widget):
     """Take a list of example names and produce all the relevant
     output files. 'widget' is the QTabWidget holding the
-    example_widget and config_widget tabs. 'examples' is a string list."""
-    dlg = ProcessDialog(examples, widget)
+    example_widget and config_widget tabs. 'examples' is a string list.
+    If 'overview' is either 'visible' or 'all' an overview PDF
+    will be created after the examplese have been created."""
+    dlg = ProcessDialog(examples, overview, widget)
     dlg.exec_()
 
 
@@ -258,12 +260,13 @@ class ProcessDialog(widgets.dialog.Dialog):
     TODO: Move this to the (non-modal) Tool to enable continuing to
     work in the editor during that process."""
 
-    def __init__(self, examples, widget):
+    def __init__(self, examples, overview, widget):
         super(ProcessDialog, self).__init__(
-            parent=widget.mainwindow(),
+            parent=widget,
             buttons=('cancel', 'ok',),
             title="Erzeuge Notenbeispiel(e)",
             )
+        self.overview = overview
         self.widget = widget
         ac = widget.action_collection
 
@@ -374,13 +377,122 @@ class ProcessDialog(widgets.dialog.Dialog):
                 self._job_handlers.append(LilyPondJobHandler(self, example))
                 self._job_handlers[-1].enqueue()
 
+    def create_overview_pdf(self):
+
+        filtered = self.overview == 'visible'
+        visible_examples = self.parent().example_names(visible_only=True)
+
+        tex = [
+            '\\documentclass[b5paper]{scrartcl}',
+            '\\usepackage{graphicx}',
+            '\\usepackage[margin=1cm]{geometry}'
+            '\\setlength{\\parindent}{0pt}',
+            '\\begin{document}',
+            '\\section*{Leopold Mozart: Violinschule (1756) -- Notenbeispiele}',
+            'Dieses Dokument enthält die bereits gesetzten Notenbeispiele',
+            'aus der Violinschule von Leopold Mozart (Ausgabe 1756).'
+        ]
+        if filtered:
+            file_filter = self.parent().cb_filter_file.checkState()
+            file_input = self.parent().cb_filter_input.checkState()
+            file_review = self.parent().cb_filter_review.checkState()
+            file_approved = self.parent().cb_filter_approved.checkState()
+            if file_filter + file_input + file_review + file_approved > 0:
+                states = ['egal', 'nein', 'ja']
+
+                tex.extend([
+                    'Die Auswahl ist gefiltert nach folgenden Kriterien:',
+                    '',
+                    '\\begin{itemize}',
+                    '\\itemsep 0em',
+                ])
+                if file_filter:
+                    tex.append('\\item Datei vorhanden: {}'.format(
+                        states[file_filter]))
+                if file_input:
+                    tex.append('\\item Eingegeben: {}'.format(
+                        states[file_input]))
+                if file_review:
+                    tex.append('\\item Zur Abnahme: {}'.format(
+                        states[file_review]))
+                if file_approved:
+                    tex.append('\\item Abgenommen: {}'.format(
+                        states[file_approved]))
+                tex.append('\\end{itemize}')
+
+        tex.extend([
+            'Farbig markierte Elemente verweisen auf Annotationen,'
+            'die im Quelltext des jeweiligen Beispiels nachgelesen werden',
+            'können. Für die Publikation wird die Farbverwendung einfach',
+            'deaktiviert. \\emph{Dunkelgrün} steht für kritische Anmerkungen,',
+            '\\emph{Hellgrün} für noch zu entscheidende inhaltliche Fragen,',
+            'und \\emph{Rot} verweist auf zu lösende technische Probleme.\par'
+        ])
+
+        list_file = os.path.join(self.project_root, 'vorlage', 'beispiel-liste')
+        re_heading = re.compile('(\**) (.*)')
+        with open(list_file) as f:
+            input_list = f.read().split('\n')
+        for line in input_list:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            match = re_heading.match(line)
+            if match:
+                # Handle top/second-level headings
+                level, title = match.groups()
+                if level == '*':
+                    tex.append('\\subsection*{{{}}}'.format(title))
+                else:
+                    tex.append('\\subsubsection*{{{}}}'.format(title))
+            else:
+                # Handle single example
+                current_example = line.split()[0]
+                current_example_tex = current_example.replace('_', '\\_')
+                if filtered and not current_example in visible_examples:
+                    tex.append('\\texttt{{{}}} -- gefiltert\\par'.format(
+                        current_example_tex))
+                elif not os.path.isfile(
+                    os.path.join(self.export_directory, '{}-systems.count'.format(
+                    current_example))):
+                    tex.append('\\texttt{{{}}} -- nicht vorhanden\\par'.format(
+                        current_example_tex))
+                else:
+                    count_file = os.path.join(self.export_directory,
+                        '{}-systems.count'.format(current_example))
+                    with open(count_file) as f:
+                        system_count = int(f.read())
+                    tex.append('\\texttt{{{}}} -- {} Akkolade(n)'.format(
+                        current_example_tex, system_count))
+                    tex.append('\\par\\nobreak\\bigskip\\nobreak')
+                    for i in range(system_count):
+                        tex.extend([
+                            '\\includegraphics{{{}-{}.pdf}}\\par'.format(
+                                current_example, i + 1),
+                            '\\medskip'
+                        ])
+
+        tex.append('\\end{document}\n')
+        self.overview_file = os.path.join(self.export_directory,
+            'Notenbeispiele_gefiltert.tex' if filtered
+            else 'Notenbeispiele.tex')
+        with open(self.overview_file, 'w') as f:
+            f.write('\n'.join(tex))
+
+        self.queue.idle.disconnect(self.slot_conversions_completed)
+        self.queue.idle.connect(self.slot_overview_created)
+        j = job.Job(['pdflatex', self.overview_file])
+        j.set_directory(self.export_directory)
+        self.queue.add_job(j)
+        self.setMessage(self.message + '\nErzeuge PDF-Übersicht.')
+
     def enqueue_conversions(self):
         """Triggered when the queue is getting IDLE (for the first time).
         Now all scores have been engraved to PDF, and we can create
         and enqueue the jobs to convert the resulting files to the
         additional image formats"""
         self.queue.idle.disconnect(self.enqueue_conversions)
-        self.queue.idle.connect(self.slot_queue_finished)
+        self.queue.idle.connect(self.slot_conversions_completed)
         self._job_handlers = []
         # temorarily stop the queue to avoid any race conditions
         self.queue.pause()
@@ -415,7 +527,7 @@ class ProcessDialog(widgets.dialog.Dialog):
         imod = QFileInfo(infile).fileTime(QFileDevice.FileModificationTime)
         return omod >= imod
 
-    def slot_queue_finished(self):
+    def slot_conversions_completed(self):
         """Triggered when the queue reaches IDLE for the second
         time, i.e. after converting all example PDFs to the other formats."""
         self._ticker.stop()
@@ -424,8 +536,21 @@ class ProcessDialog(widgets.dialog.Dialog):
         ac.mozart_process_resume.setEnabled(False)
         ac.mozart_process_pause.setEnabled(False)
         self.final_message()
+        if self.overview:
+            self.create_overview_pdf()
+        else:
+            self.button('cancel').setEnabled(False)
+            self.button('ok').setEnabled(True)
+
+    def slot_overview_created(self):
+        """Triggered when a final overview PDF has been created."""
+        self.setMessage(self.message + '\nAbgeschlossen.')
         self.button('cancel').setEnabled(False)
         self.button('ok').setEnabled(True)
+        result_file = '{}.pdf'.format(os.path.splitext(self.overview_file)[0])
+        import helpers
+        helpers.openUrl(QUrl.fromLocalFile(result_file))
+
 
     def checkbox(self, jobinfo):
         """"Determine the "results view" checkbox corresponding
@@ -472,14 +597,14 @@ class ProcessDialog(widgets.dialog.Dialog):
         check_box.setCheckState(1)
 
     def final_message(self):
-        self.setMessage(("{}\n" +
+        self.message = ("{}\n" +
             "{} Jobs in {} erledigt.\n" +
             "{} aktuelle Jobs übersprungen").format(
                 self.status,
                 self._jobs_done,
                 job.Job.elapsed2str(time.time() - self.queue._starttime),
-                self._skipped_count
-            ))
+                self._skipped_count)
+        self.setMessage(self.message)
 
     def update_message(self):
         """Aktualisiere die Status-Message."""

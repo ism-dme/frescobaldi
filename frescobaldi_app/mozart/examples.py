@@ -272,14 +272,14 @@ class ExamplesWidget(QWidget):
                 review_cnt,
                 approved_cnt))
 
-    def _process_examples(self, target):
+    def _process_examples(self, target, overview=''):
         """Rufe ProcessExamples-Dialog auf.
         Filtere aus 'target' alle Beispiele, die noch keine Datei besitzen."""
         from . import process
         target = ([example for example in target
             if os.path.exists(os.path.join(
                 self.config().project_root(), '{}.ly'.format(example)))])
-        process.create_examples(target, self)
+        process.create_examples(target, overview, self)
 
     def process_example(self):
         """Erzeuge das ausgewählte Beispiel."""
@@ -287,11 +287,13 @@ class ExamplesWidget(QWidget):
 
     def process_examples(self):
         """Erzeuge alle Beispiele (die eine Datei haben)."""
-        self._process_examples(self.example_names())
+        self._process_examples(self.example_names(),
+            overview="all")
 
     def process_visible_examples(self):
         """Erzeuge die sichtbaren Beispiele (sofern sie eine Datei haben)."""
-        self._process_examples(self.example_names(visible_only=True))
+        self._process_examples(self.example_names(visible_only=True),
+            overview='visible')
 
     def save_settings(self):
         s = QSettings()
