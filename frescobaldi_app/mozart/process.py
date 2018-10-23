@@ -420,7 +420,16 @@ class ProcessDialog(widgets.dialog.Dialog):
                         states[file_approved]))
                 tex.append('\\end{itemize}')
 
+        from vcs.gitrepo import Repo
+        repo = Repo(self.project_root)
+        import datetime
+
         tex.extend([
+            '\\par\\bigskip',
+            'Branch: {}\\par'.format(repo.current_branch()),
+            'Commit: {}\\par'.format(repo.HEAD()),
+            'Generated: {}\\par'.format(datetime.datetime.now()),
+            '\\bigskip',
             'Farbig markierte Elemente verweisen auf Annotationen,'
             'die im Quelltext des jeweiligen Beispiels nachgelesen werden',
             'können. Für die Publikation wird die Farbverwendung einfach',
