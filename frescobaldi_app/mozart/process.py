@@ -273,6 +273,7 @@ class ProcessDialog(widgets.dialog.Dialog):
         self.status = "Erzeugen erfolgreich"
         self.examples = examples
         self._job_handlers = []
+        self._failed_jobs = []
         s = QSettings()
         s.beginGroup('mozart')
         self.project_root = s.value('root')
@@ -316,6 +317,7 @@ class ProcessDialog(widgets.dialog.Dialog):
         layout.addWidget(self.results_view, 1, 1, 1, 1)
 
         self.create_jobs()
+        self._failed_jobs = []
         if self._job_handlers:
             self.button('cancel').clicked.disconnect()
             self.button('cancel').clicked.connect(self.abort)
@@ -392,6 +394,7 @@ class ProcessDialog(widgets.dialog.Dialog):
             'Dieses Dokument enthält die bereits gesetzten Notenbeispiele',
             'aus der Violinschule von Leopold Mozart (Ausgabe 1756).'
         ]
+
         if filtered:
             file_filter = self.parent().cb_filter_file.checkState()
             file_input = self.parent().cb_filter_input.checkState()
@@ -509,6 +512,10 @@ class ProcessDialog(widgets.dialog.Dialog):
             for type in [type for type in TYPES if type != 'PDF']:
                 self._job_handlers.append(ConversionJobHandler(self, file, type))
                 self._job_handlers[-1].enqueue()
+        if self._failed_jobs:
+            print("Some jobs report failed LilyPond compilations:")
+            print()
+            print('\n'.join(self._failed_jobs))
         self.queue.resume()
 
     def up_to_date(self, example):
@@ -589,6 +596,7 @@ class ProcessDialog(widgets.dialog.Dialog):
         if j.success:
             check_box.setCheckState(2)
         else:
+            self._failed_jobs.append(jobinfo.example)
             check_box.setCheckState(1)
             check_box.setForeground(QBrush(QColor(255, 0, 0)))
             log = [line[0] for line in j.history()]
