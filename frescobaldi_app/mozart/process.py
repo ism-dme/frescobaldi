@@ -30,7 +30,6 @@ import time
 
 from PyQt5.QtCore import (
     QFileDevice,
-    QFileInfo,
     QObject,
     QSettings,
     Qt,
@@ -536,11 +535,16 @@ class ProcessDialog(widgets.dialog.Dialog):
             '{}.pdf'.format(example))
         if not os.path.isfile(outfile):
             return False
-        omod = QFileInfo(outfile).fileTime(QFileDevice.FileModificationTime)
         infile = os.path.join(
             self.project_root,
             '{}.ly'.format(example))
-        imod = QFileInfo(infile).fileTime(QFileDevice.FileModificationTime)
+        #TODO: Activate the QFileInfo implementation if/when Qt 5.10 can
+        # can be guaranteed.
+#        from PyQt5.QtCore import QFileInfo
+#        omod = QFileInfo(outfile).fileTime(QFileDevice.FileModificationTime)
+        omod = os.path.getmtime(outfile)
+#        imod = QFileInfo(infile).fileTime(QFileDevice.FileModificationTime)
+        imod = os.path.getmtime(infile)
         return omod >= imod
 
     def slot_conversions_completed(self):
