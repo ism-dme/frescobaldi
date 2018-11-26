@@ -82,6 +82,10 @@ class ExamplesWidget(QWidget):
         self.cb_filter_approved.setText("Abgenommen")
         self.cb_filter_approved.setTristate()
 
+        self.cb_filter_rejected = QCheckBox(self)
+        self.cb_filter_rejected.setText("Abgelehnt")
+
+
         self.cb_sync_editor = QCheckBox(self)
         self.cb_sync_editor.setText("Sync")
         self.cb_sync_editor.setToolTip("Synchronisiere die verschiedenen Elemente des GUI")
@@ -93,6 +97,7 @@ class ExamplesWidget(QWidget):
         ft.addWidget(self.cb_filter_input)
         ft.addWidget(self.cb_filter_review)
         ft.addWidget(self.cb_filter_approved)
+        ft.addWidget(self.cb_filter_rejected)
 
         nt = self.nav_toolbar = QToolBar(self)
         nt.addAction(ac.mozart_process_example)
@@ -136,6 +141,7 @@ class ExamplesWidget(QWidget):
         self.cb_filter_review.stateChanged.connect(self.slot_filter_state_changed)
         self.cb_filter_input.stateChanged.connect(self.slot_filter_state_changed)
         self.cb_filter_approved.stateChanged.connect(self.slot_filter_state_changed)
+        self.cb_filter_rejected.stateChanged.connect(self.slot_filter_state_changed)
         self.cb_sync_editor.stateChanged.connect(self.slot_sync_editor_clicked)
         ac.mozart_previous_empty_example.triggered.connect(self.goto_previous_empty_example)
         ac.mozart_previous_example.triggered.connect(self.goto_previous_example)
@@ -174,6 +180,7 @@ class ExamplesWidget(QWidget):
         self.cb_filter_input.setCheckState(int(s.value('Eingegeben', "0")))
         self.cb_filter_review.setCheckState(int(s.value('Zur Abnahme', "0")))
         self.cb_filter_approved.setCheckState(int(s.value('Abgenommen', "0")))
+        self.cb_filter_rejected.setCheckState(int(s.value('Abgelehnt', "0")))
 
     def change_root(self):
         self.model.populate()
@@ -604,6 +611,17 @@ class ExamplesFilterProxyModel(QSortFilterProxyModel):
             accept = has if state == 2 else not has
             return accept
 
+        def check_rejected():
+            """Check whether the current example is rejected
+            (if the corresponding checkbox is checked)."""
+            state = self.widget.cb_filter_rejected.isChecked()
+            if not state or item(5).checkState() == Qt.PartiallyChecked:
+                # We don't care about this state
+                return True
+            else:
+                return False
+
+
         # skip headings and subheadings
         if not parent.isValid() or not item(0).text().startswith('1756'):
             return True
@@ -616,7 +634,8 @@ class ExamplesFilterProxyModel(QSortFilterProxyModel):
         if (not check_rule(self.widget.cb_filter_file, 1)
             or not check_rule(self.widget.cb_filter_input, 3)
             or not check_rule(self.widget.cb_filter_review, 4)
-            or not check_rule(self.widget.cb_filter_approved, 5)):
+            or not check_rule(self.widget.cb_filter_approved, 5)
+            or not check_rejected()):
             return False
         else:
             return True
@@ -645,7 +664,8 @@ class ExamplesModel(QStandardItemModel):
             'examples': 0,
             'input': 0,
             'review': 0,
-            'approved': 0
+            'approved': 0,
+            'rejected': 0
         }
 
         self.itemChanged.connect(self.slot_item_changed)
