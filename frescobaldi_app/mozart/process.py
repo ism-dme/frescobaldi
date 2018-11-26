@@ -387,7 +387,9 @@ class ProcessDialog(widgets.dialog.Dialog):
         tex = [
             '\\documentclass[b5paper]{scrartcl}',
             '\\usepackage{graphicx}',
-            '\\usepackage[margin=1cm]{geometry}'
+            '\\usepackage[margin=1cm]{geometry}',
+            '\\usepackage{fontspec}',
+            '\\usepackage[ngerman]{polyglossia}',
             '\\setlength{\\parindent}{0pt}',
             '\\begin{document}',
             '\\section*{Leopold Mozart: Violinschule (1756) -- Notenbeispiele}',
@@ -492,8 +494,9 @@ class ProcessDialog(widgets.dialog.Dialog):
             f.write('\n'.join(tex))
 
         self.queue.idle.disconnect(self.slot_conversions_completed)
-        self.queue.idle.connect(self.slot_overview_created)
-        j = job.Job(['pdflatex', self.overview_file])
+        j = job.Job(['lualatex',
+            '-interaction=nonstopmode',
+            self.overview_file])
         j.set_directory(self.export_directory)
         self.queue.add_job(j)
         self.setMessage(self.message + '\nErzeuge PDF-Übersicht.')
