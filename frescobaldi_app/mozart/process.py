@@ -188,7 +188,8 @@ class ConversionJobHandler(AbstractJobHandler):
     def __init__(self, dialog, file, type):
         self.filename = file
         example = os.path.splitext(os.path.basename(file))[0]
-        example = re.match('1756_\d\d\d_\d+', example).group()
+        example = re.match('1756_(\d\d\d|erratum|tabelle)_\d+', example).group()
+#        example = re.match('1756_\d\d\d_\d+', example).group()
         super(ConversionJobHandler, self).__init__(dialog, example)
         self.type = type
 
