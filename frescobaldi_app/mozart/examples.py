@@ -33,7 +33,9 @@ from PyQt5.QtCore import (
 )
 from PyQt5.QtGui import (
     QStandardItem,
-    QStandardItemModel
+    QStandardItemModel,
+    QBrush,
+    QColor
 )
 from PyQt5.QtWidgets import (
     QAbstractItemView,
@@ -265,12 +267,14 @@ class ExamplesWidget(QWidget):
         input_cnt = model.count['input']
         review_cnt = model.count['review']
         approved_cnt = model.count['approved']
+        rejected_cnt = model.count['rejected']
         self.stats_label.setText(
             "Beispiele: {} ({}) | Eingegeben: {} | ".format(
                 visible_cnt, examples_cnt, input_cnt)
-            + "Zur Korrektur: {} | Akzeptiert: {}".format(
+            + "Zur Korrektur: {} | Akzeptiert: {} | ".format(
                 review_cnt,
-                approved_cnt))
+                approved_cnt)
+            + "Abgelehnt: {}".format(rejected_cnt))
 
     def _process_examples(self, target, overview=''):
         """Rufe ProcessExamples-Dialog auf.
@@ -677,7 +681,8 @@ class ExamplesModel(QStandardItemModel):
             'examples': 0,
             'input': 0,
             'review': 0,
-            'approved': 0
+            'approved': 0,
+            'rejected': 0
         }
         self.load_column_widths()
 
@@ -760,6 +765,10 @@ class ExamplesModel(QStandardItemModel):
                 if xmp_info[3] == '[x]':
                     approved = Qt.Checked
                     self.count['approved'] += 1
+                elif xmp_info[3] == '[-]':
+                    approved = Qt.PartiallyChecked
+                    approved_item.setForeground(QBrush(QColor(255, 0, 0)))
+                    self.count['rejected'] += 1
                 else:
                     approved = Qt.Unchecked
                 approved_item.setCheckState(approved)
