@@ -498,6 +498,7 @@ class ProcessDialog(widgets.dialog.Dialog):
             '-interaction=nonstopmode',
             self.overview_file])
         j.set_directory(self.export_directory)
+        j.done.connect(self.slot_overview_created)
         self.queue.add_job(j)
         self.setMessage(self.message + '\nErzeuge PDF-Übersicht.')
 
@@ -566,9 +567,12 @@ class ProcessDialog(widgets.dialog.Dialog):
             self.button('cancel').setEnabled(False)
             self.button('ok').setEnabled(True)
 
-    def slot_overview_created(self):
+    def slot_overview_created(self, success):
         """Triggered when a final overview PDF has been created."""
-        self.setMessage(self.message + '\nAbgeschlossen.')
+        print("Overview_created")
+        print(self.sender())
+        status = '\nAbgeschlossen.' if success else '\nGescheitert.'
+        self.setMessage(self.message + status)
         self.button('cancel').setEnabled(False)
         self.button('ok').setEnabled(True)
         result_file = '{}.pdf'.format(os.path.splitext(self.overview_file)[0])
