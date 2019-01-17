@@ -21,6 +21,7 @@ extensions from reliable sources only!
 
 #SUBDOCS
 ext_installation
+ext_errors
 ext_configuration
 ext_usage
 
