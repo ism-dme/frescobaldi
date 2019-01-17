@@ -110,10 +110,7 @@ def findDocument(url):
 def instantiate():
     """Instantiate the global QApplication object."""
     global qApp
-    args = [os.path.abspath(sys.argv[0])] + sys.argv[1:]
-    ### on Python3, QApplication args must be byte strings
-    if sys.version_info >= (3, 0):
-        args = list(map(os.fsencode, args))
+    args = list(map(os.fsencode, [os.path.abspath(sys.argv[0])] + sys.argv[1:]))
     qApp = QApplication(args)
     QApplication.setApplicationName(appinfo.name)
     QApplication.setApplicationVersion(appinfo.version)
@@ -230,6 +227,21 @@ def displayhook(obj):
     """Prevent normal displayhook from overwriting __builtin__._"""
     if obj is not None:
         print(repr(obj))
+
+
+_extensions = None
+
+def load_extensions(mainwindow):
+    """Called from MainWindow.__init__()"""
+    import extensions
+    global _extensions
+    _extensions = extensions.Extensions(mainwindow)
+
+def extensions():
+    """Return the global Extensions object."""
+    global _extensions
+    return _extensions
+
 
 _job_queue = None
 
