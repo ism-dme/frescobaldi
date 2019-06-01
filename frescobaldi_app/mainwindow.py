@@ -123,6 +123,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.tabBar)
         layout.addWidget(self.viewManager)
 
+        app.load_extensions(self)
         self.createActions()
         self.createMenus()
         self.createToolBars()
@@ -490,7 +491,7 @@ class MainWindow(QMainWindow):
 
     def newDocument(self):
         """ Creates a new, empty document. """
-        d = document.Document()
+        d = document.EditorDocument()
         self.setCurrentDocument(d)
         s = QSettings()
         ndoc = s.value("new_document", "empty", str)

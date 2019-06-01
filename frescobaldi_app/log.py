@@ -56,11 +56,11 @@ class Log(QTextBrowser):
         """Return the set message types (job.ALL by default)."""
         return self._types
 
-    def connectJob(self, job):
+    def connectJob(self, j):
         """Gives us the output from the Job (past and upcoming)."""
-        for msg, type in job.history():
+        for msg, type in j.history():
             self.write(msg, type)
-        job.output.connect(self.write)
+        j.output.connect(self.write)
 
     def textFormat(self, type):
         """Returns a QTextFormat() for the given type."""
@@ -120,8 +120,6 @@ class Log(QTextBrowser):
 
         output = QTextCharFormat()
         output.setFont(outputFont)
-        # enable zooming the log font size
-        output.setProperty(QTextFormat.FontSizeAdjustment, 0)
 
         stdout = QTextCharFormat(output)
         stdout.setForeground(stdoutColor)
@@ -131,7 +129,7 @@ class Log(QTextBrowser):
         link.setForeground(linkColor)
         link.setFontUnderline(True)
 
-        status = QTextCharFormat()
+        status = QTextCharFormat(output)
         status.setFontWeight(QFont.Bold)
 
         neutral = QTextCharFormat(status)
@@ -150,6 +148,3 @@ class Log(QTextBrowser):
             job.FAILURE: failure,
             'link': link,
         }
-
-
-

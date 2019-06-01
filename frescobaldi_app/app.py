@@ -93,7 +93,7 @@ def openUrl(url, encoding=None):
                 d.load(url)
         else:
             import document
-            d = document.Document.new_from_url(url, encoding)
+            d = document.EditorDocument.new_from_url(url, encoding)
     return d
 
 def findDocument(url):
@@ -110,10 +110,7 @@ def findDocument(url):
 def instantiate():
     """Instantiate the global QApplication object."""
     global qApp
-    args = [os.path.abspath(sys.argv[0])] + sys.argv[1:]
-    ### on Python3, QApplication args must be byte strings
-    if sys.version_info >= (3, 0):
-        args = list(map(os.fsencode, args))
+    args = list(map(os.fsencode, [os.path.abspath(sys.argv[0])] + sys.argv[1:]))
     qApp = QApplication(args)
     QApplication.setApplicationName(appinfo.name)
     QApplication.setApplicationVersion(appinfo.version)
@@ -150,6 +147,9 @@ def restart():
     python_executable = sys.executable
     if python_executable:
         args = [python_executable] + args
+    #NOTE: This deliberately uses subprocess and not job.Job
+    # It has turned out that using Job the code files are not
+    # reloaded at all.
     import subprocess
     subprocess.Popen(args)
 
@@ -227,6 +227,33 @@ def displayhook(obj):
     """Prevent normal displayhook from overwriting __builtin__._"""
     if obj is not None:
         print(repr(obj))
+
+
+_extensions = None
+
+def load_extensions(mainwindow):
+    """Called from MainWindow.__init__()"""
+    import extensions
+    global _extensions
+    _extensions = extensions.Extensions(mainwindow)
+
+def extensions():
+    """Return the global Extensions object."""
+    global _extensions
+    return _extensions
+
+
+_job_queue = None
+
+def job_queue():
+    """Return the global JobQueue object."""
+    global _job_queue
+    if _job_queue is None:
+        import job.queue
+        #TODO: save the number of runners in the Preferences
+        #NOTE: Provide code for *changing* the number of runners
+        _job_queue = job.queue.GlobalJobQueue()
+    return _job_queue
 
 _is_git_controlled = None
 

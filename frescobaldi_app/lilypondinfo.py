@@ -33,12 +33,10 @@ from PyQt5.QtWidgets import QProgressDialog
 
 import app
 import cachedproperty
-import process
+import job
+import job.queue
 import util
 import qutil
-
-
-_scheduler = process.Scheduler()
 
 
 _infos = None   # this can hold a list of configured LilyPondInfo instances
@@ -195,7 +193,7 @@ class LilyPondInfo(object):
             return os.path.join(parent, 'lib')
         else:
             return False
-    
+
     @CachedProperty.cachedproperty(depends=abscommand)
     def displaycommand(self):
         """The path to the command in a format pretty to display.
@@ -226,18 +224,19 @@ class LilyPondInfo(object):
         if not self.abscommand():
             return ""
 
-        p = process.Process([self.abscommand(), '--version'])
+        j = job.Job([self.abscommand(), '--version'])
 
-        @p.done.connect
-        def done(success):
+        @j.done.connect
+        def done():
+            success = j.success
             if success:
-                output = codecs.decode(p.process.readLine(), 'latin1', 'replace')
+                output = ' '.join([line[0] for line in j.history()])
                 m = re.search(r"\d+\.\d+(.\d+)?", output)
                 self.versionString = m.group() if m else ""
             else:
                 self.versionString = ""
 
-        _scheduler.add(p)
+        app.job_queue().add_job(j, 'generic')
 
     @CachedProperty.cachedproperty(depends=versionString)
     def version(self):
@@ -271,12 +270,14 @@ class LilyPondInfo(object):
             return False
 
         # First ask LilyPond itself.
-        p = process.Process([self.abscommand(), '-e',
+        j = job.Job([self.abscommand(), '-e',
             "(display (ly:get-option 'datadir)) (newline) (exit)"])
-        @p.done.connect
-        def done(success):
+        @j.done.connect
+        def done():
+            success = j.success
             if success:
-                d = codecs.decode(p.process.readLine(), 'latin1', 'replace').strip('\n')
+                output = [line[0] for line in j.history()]
+                d = output[1].strip('\n')
                 if os.path.isabs(d) and os.path.isdir(d):
                     self.datadir = d
                     return
@@ -292,7 +293,7 @@ class LilyPondInfo(object):
                         self.datadir = d
                         return
             self.datadir = False
-        _scheduler.add(p)
+        app.job_queue().add_job(j, 'generic')
 
     def toolcommand(self, command):
         """Return a list containing the commandline to run a tool, e.g. convert-ly.
@@ -406,5 +407,3 @@ class LilyPondInfo(object):
                 if os.access(interpreter, os.X_OK):
                     return interpreter
         return 'pythonw.exe'
-
-
